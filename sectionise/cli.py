@@ -14,6 +14,8 @@ from pathlib import Path
 
 from . import core
 
+_BOM = chr(0xFEFF)  # UTF-8 byte-order mark, kept and re-applied verbatim
+
 # Directories skipped when a directory argument is walked, so vendored and
 # generated trees are never rewritten by accident.
 _SKIP_DIRS = frozenset(
@@ -213,20 +215,23 @@ def main(argv: list[str] | None = None) -> int:
             all_errors.append(f"invalid configuration for {name}: {exc}")
             continue
         try:
-            text = path.read_text(encoding="utf-8")
+            raw = path.read_text(encoding="utf-8")
         except UnicodeDecodeError:
             print(f"sectionise: skipped {name}: not valid UTF-8 text", file=sys.stderr)
             continue
         except OSError as exc:
             print(f"sectionise: skipped {name}: {exc.strerror or exc}", file=sys.stderr)
             continue
+        bom = raw.startswith(_BOM)
+        text = raw[1:] if bom else raw
         protected = core.protected_lines(text, path.suffix)
         new_text, changed, errors = core.process_text(text, syntax, style, name, protected)
         all_errors.extend(errors)
         if changed:
             changed_files.append(name)
             if not args.check:
-                path.write_text(new_text, encoding="utf-8")
+                out_text = _BOM + new_text if bom else new_text
+                path.write_text(out_text, encoding="utf-8")
 
     verb = "would reformat" if args.check else "reformatted"
     for name in changed_files:

@@ -263,6 +263,17 @@ def protected_lines(text: str, suffix: str) -> frozenset[int]:
     return frozenset()
 
 
+def _dominant_eol(text: str) -> str:
+    r"""Return the file's prevailing line ending, `\r\n` or `\n`.
+
+    Used only as a fallback for a final line that has no newline of its own, so
+    a lone stray `\r\n` in a mostly-`\n` file does not flip the choice.
+    """
+    crlf = text.count("\r\n")
+    lf = text.count("\n") - crlf
+    return "\r\n" if crlf > lf else "\n"
+
+
 def _content(line: str) -> str:
     """Return `line` without its trailing newline."""
     return line.rstrip("\r\n")
@@ -550,7 +561,7 @@ def process_text(
     syntaxes = _as_syntaxes(syntax)
     lines = text.splitlines(keepends=True)
     n = len(lines)
-    file_eol = "\r\n" if "\r\n" in text else "\n"
+    file_eol = _dominant_eol(text)
     protected = frozenset(protected)
     out: list[str] = []
     changed = 0
