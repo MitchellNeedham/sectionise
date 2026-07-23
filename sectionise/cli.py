@@ -121,11 +121,19 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="sectionise",
         description="Standardise section-header comment banners.",
     )
-    parser.add_argument("filenames", nargs="*", help="Files to process, or - for stdin.")
-    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
-    parser.add_argument("--config", type=Path, default=None, help="pyproject.toml to read.")
     parser.add_argument(
-        "--encoding", default=None, help="Text encoding to read and write files as (default utf-8)."
+        "filenames", nargs="*", help="Files to process, or - for stdin."
+    )
+    parser.add_argument(
+        "--version", action="version", version=f"%(prog)s {__version__}"
+    )
+    parser.add_argument(
+        "--config", type=Path, default=None, help="pyproject.toml to read."
+    )
+    parser.add_argument(
+        "--encoding",
+        default=None,
+        help="Text encoding to read and write files as (default utf-8).",
     )
     parser.add_argument(
         "--stdin-filename",
@@ -137,9 +145,14 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--detect-chars", default=None, help="Characters recognised as banner fill."
     )
-    parser.add_argument("--min-run", type=int, default=None, help="Minimum fill-run length.")
     parser.add_argument(
-        "--tab-width", type=int, default=None, help="Columns a leading tab occupies (default 8)."
+        "--min-run", type=int, default=None, help="Minimum fill-run length."
+    )
+    parser.add_argument(
+        "--tab-width",
+        type=int,
+        default=None,
+        help="Columns a leading tab occupies (default 8).",
     )
     parser.add_argument(
         "--style", choices=("single", "box"), default=None, help="Output form."
@@ -175,7 +188,9 @@ def _build_parser() -> argparse.ArgumentParser:
         "--check", action="store_true", help="Report only; do not rewrite files."
     )
     parser.add_argument(
-        "--diff", action="store_true", help="Print a unified diff of changes; do not rewrite."
+        "--diff",
+        action="store_true",
+        help="Print a unified diff of changes; do not rewrite.",
     )
     return parser
 
@@ -275,10 +290,17 @@ def _custom_languages(config: dict) -> dict[str, dict]:
         return {}
     languages: dict[str, dict] = {}
     for name, settings in table.items():
-        if not isinstance(settings, dict) or not ("suffixes" in settings or "comments" in settings):
+        if not isinstance(settings, dict) or not (
+            "suffixes" in settings or "comments" in settings
+        ):
             continue
         suffixes, comments = settings.get("suffixes"), settings.get("comments")
-        if not (isinstance(suffixes, list) and suffixes and isinstance(comments, list) and comments):
+        if not (
+            isinstance(suffixes, list)
+            and suffixes
+            and isinstance(comments, list)
+            and comments
+        ):
             raise ValueError(
                 f"custom language '{name}' needs a non-empty 'suffixes' list and "
                 f"'comments' list"
@@ -290,11 +312,16 @@ def _custom_languages(config: dict) -> dict[str, dict]:
                     f"custom language '{name}': suffix {suffix!r} must be a string like '.foo'"
                 )
             normalised.append(suffix.lower())
-        languages[name] = {"suffixes": tuple(normalised), "syntaxes": _parse_comments(name, comments)}
+        languages[name] = {
+            "suffixes": tuple(normalised),
+            "syntaxes": _parse_comments(name, comments),
+        }
     return languages
 
 
-def _resolve_language(config: dict, suffix: str, text: str) -> tuple[str | None, core.Syntaxes | None]:
+def _resolve_language(
+    config: dict, suffix: str, text: str
+) -> tuple[str | None, core.Syntaxes | None]:
     """Return `(language, syntaxes)` for a file: built-in, then custom, then shebang."""
     suffix = suffix.lower()
     builtin = core.syntax_for(suffix)
@@ -315,7 +342,9 @@ def _resolve_encoding(args: argparse.Namespace, config: dict) -> str:
     Raises:
         ValueError: If the resolved encoding name is not one Python knows.
     """
-    encoding = args.encoding if args.encoding is not None else config.get("encoding", "utf-8")
+    encoding = (
+        args.encoding if args.encoding is not None else config.get("encoding", "utf-8")
+    )
     try:
         codecs.lookup(encoding)
     except (LookupError, TypeError) as exc:
@@ -347,11 +376,18 @@ def _run_stdin(args: argparse.Namespace, forced_config: dict | None) -> int:
     if syntax is None:
         print(f"sectionise: unsupported stdin filename {stdin_name!r}", file=sys.stderr)
         return 2
-    config = forced_config if forced_config is not None else _load_config(_find_pyproject(Path.cwd()))
+    config = (
+        forced_config
+        if forced_config is not None
+        else _load_config(_find_pyproject(Path.cwd()))
+    )
     language = core.language_for(suffix)
     try:
         style = _resolve_style(
-            args, config, _language_config(config, language), core.language_defaults(language)
+            args,
+            config,
+            _language_config(config, language),
+            core.language_defaults(language),
         )
         _resolve_encoding(args, config)
     except ValueError as exc:
@@ -360,7 +396,9 @@ def _run_stdin(args: argparse.Namespace, forced_config: dict | None) -> int:
 
     text = sys.stdin.read()
     protected = core.protected_lines(text, suffix)
-    new_text, changed, errors = core.process_text(text, syntax, style, stdin_name, protected)
+    new_text, changed, errors = core.process_text(
+        text, syntax, style, stdin_name, protected
+    )
     for error in errors:
         print(error, file=sys.stderr)
 
@@ -402,7 +440,9 @@ def main(argv: list[str] | None = None) -> int:
     style_cache: dict[tuple, core.Style] = {}
 
     def config_key_for(path: Path) -> Path | None:
-        return args.config if forced_config is not None else _find_pyproject(path.parent)
+        return (
+            args.config if forced_config is not None else _find_pyproject(path.parent)
+        )
 
     def config_for(config_key: Path | None) -> dict:
         if config_key not in config_cache:
@@ -421,7 +461,10 @@ def main(argv: list[str] | None = None) -> int:
         if cache_key not in style_cache:
             config = config_for(config_key)
             style_cache[cache_key] = _resolve_style(
-                args, config, _language_config(config, language), core.language_defaults(language)
+                args,
+                config,
+                _language_config(config, language),
+                core.language_defaults(language),
             )
         return style_cache[cache_key]
 
@@ -452,7 +495,10 @@ def main(argv: list[str] | None = None) -> int:
             with open(path, encoding=encoding, newline="") as handle:
                 raw = handle.read()
         except UnicodeDecodeError:
-            print(f"sectionise: skipped {name}: not valid {encoding} text", file=sys.stderr)
+            print(
+                f"sectionise: skipped {name}: not valid {encoding} text",
+                file=sys.stderr,
+            )
             continue
         except OSError as exc:
             print(f"sectionise: skipped {name}: {exc.strerror or exc}", file=sys.stderr)
@@ -460,7 +506,9 @@ def main(argv: list[str] | None = None) -> int:
         bom = raw.startswith(_BOM)
         text = raw[1:] if bom else raw
         try:
-            language, syntax = _resolve_language(config_for(config_key), path.suffix, text)
+            language, syntax = _resolve_language(
+                config_for(config_key), path.suffix, text
+            )
         except ValueError as exc:
             all_errors.append(f"invalid configuration for {name}: {exc}")
             continue
@@ -472,9 +520,15 @@ def main(argv: list[str] | None = None) -> int:
         except ValueError as exc:
             all_errors.append(f"invalid configuration for {name}: {exc}")
             continue
-        protect_suffix = path.suffix if core.syntax_for(path.suffix) else core.primary_suffix(language)
+        protect_suffix = (
+            path.suffix
+            if core.syntax_for(path.suffix)
+            else core.primary_suffix(language)
+        )
         protected = core.protected_lines(text, protect_suffix)
-        new_text, changed, errors = core.process_text(text, syntax, style, name, protected)
+        new_text, changed, errors = core.process_text(
+            text, syntax, style, name, protected
+        )
         all_errors.extend(errors)
         if changed:
             changed_files.append(name)

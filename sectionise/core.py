@@ -68,7 +68,13 @@ _LANGUAGES: tuple[tuple[str, tuple[str, ...], "Syntaxes", tuple, dict], ...] = (
     ("ruby", (".rb",), (_LINE_HASH,), (), {"width": 120}),
     ("perl", (".pl", ".pm"), (_LINE_HASH,), (), {"width": 80}),
     ("r", (".r",), (_LINE_HASH,), (), {"width": 80}),
-    ("javascript", (".js", ".jsx", ".mjs", ".cjs"), _CFAMILY, (_BACKTICK,), {"width": 80}),
+    (
+        "javascript",
+        (".js", ".jsx", ".mjs", ".cjs"),
+        _CFAMILY,
+        (_BACKTICK,),
+        {"width": 80},
+    ),
     ("typescript", (".ts", ".tsx"), _CFAMILY, (_BACKTICK,), {"width": 80}),
     ("c", (".c", ".h"), _CFAMILY, (), {"width": 80}),
     ("cpp", (".cpp", ".cc", ".cxx", ".hpp", ".hh"), _CFAMILY, (), {"width": 80}),
@@ -92,7 +98,9 @@ _LANGUAGES: tuple[tuple[str, tuple[str, ...], "Syntaxes", tuple, dict], ...] = (
 
 _SYNTAX_BY_SUFFIX = {sfx: syn for _, sfxs, syn, _, _ in _LANGUAGES for sfx in sfxs}
 _LANG_BY_SUFFIX = {sfx: name for name, sfxs, _, _, _ in _LANGUAGES for sfx in sfxs}
-_STRING_DELIMS_BY_SUFFIX = {sfx: d for _, sfxs, _, d, _ in _LANGUAGES for sfx in sfxs if d}
+_STRING_DELIMS_BY_SUFFIX = {
+    sfx: d for _, sfxs, _, d, _ in _LANGUAGES for sfx in sfxs if d
+}
 _DEFAULTS_BY_LANGUAGE = {name: dict(defaults) for name, _, _, _, defaults in _LANGUAGES}
 _SUFFIXES_BY_LANGUAGE = {name: sfxs for name, sfxs, _, _, _ in _LANGUAGES}
 _SYNTAXES_BY_LANGUAGE = {name: syn for name, _, syn, _, _ in _LANGUAGES}
@@ -158,18 +166,38 @@ class Style:
                 message names the offending setting so a bad `pyproject.toml` is
                 easy to fix.
         """
-        if not isinstance(self.width, int) or isinstance(self.width, bool) or self.width < 1:
+        if (
+            not isinstance(self.width, int)
+            or isinstance(self.width, bool)
+            or self.width < 1
+        ):
             raise ValueError(f"width must be a positive integer, got {self.width!r}")
-        if not isinstance(self.min_run, int) or isinstance(self.min_run, bool) or self.min_run < 1:
-            raise ValueError(f"min_run must be a positive integer, got {self.min_run!r}")
+        if (
+            not isinstance(self.min_run, int)
+            or isinstance(self.min_run, bool)
+            or self.min_run < 1
+        ):
+            raise ValueError(
+                f"min_run must be a positive integer, got {self.min_run!r}"
+            )
         if not isinstance(self.fill, str) or len(self.fill) != 1 or self.fill.isspace():
-            raise ValueError(f"fill must be a single non-space character, got {self.fill!r}")
+            raise ValueError(
+                f"fill must be a single non-space character, got {self.fill!r}"
+            )
         if not isinstance(self.detect_chars, str) or not self.detect_chars:
-            raise ValueError(f"detect_chars must be a non-empty string, got {self.detect_chars!r}")
+            raise ValueError(
+                f"detect_chars must be a non-empty string, got {self.detect_chars!r}"
+            )
         if self.style not in ("single", "box"):
             raise ValueError(f"style must be 'single' or 'box', got {self.style!r}")
-        if not isinstance(self.tab_width, int) or isinstance(self.tab_width, bool) or self.tab_width < 1:
-            raise ValueError(f"tab_width must be a positive integer, got {self.tab_width!r}")
+        if (
+            not isinstance(self.tab_width, int)
+            or isinstance(self.tab_width, bool)
+            or self.tab_width < 1
+        ):
+            raise ValueError(
+                f"tab_width must be a positive integer, got {self.tab_width!r}"
+            )
         if self.align == "center":
             object.__setattr__(self, "align", "centre")
         if self.align not in ("centre", "left"):
@@ -179,7 +207,9 @@ class Style:
             or isinstance(self.max_title, bool)
             or self.max_title < 1
         ):
-            raise ValueError(f"max_title must be a positive integer or unset, got {self.max_title!r}")
+            raise ValueError(
+                f"max_title must be a positive integer or unset, got {self.max_title!r}"
+            )
         # The output fill must be recognised on the next run, else a freshly
         # written banner would not be seen as one and could not be re-fitted.
         if self.fill not in self.detect_chars:
@@ -472,7 +502,11 @@ def _banner_title(content: str, syntax: tuple[str, str], style: Style) -> str | 
         return None
     has_lead = lead >= style.min_run
     has_trail = trail >= style.min_run
-    ok = (has_lead and has_trail) if style.require_both_sides else (has_lead or has_trail)
+    ok = (
+        (has_lead and has_trail)
+        if style.require_both_sides
+        else (has_lead or has_trail)
+    )
     return title if ok else None
 
 
@@ -540,7 +574,9 @@ def _match_box(
     return None
 
 
-def _format_banner(indent: str, syntax: tuple[str, str], title: str, style: Style) -> str:
+def _format_banner(
+    indent: str, syntax: tuple[str, str], title: str, style: Style
+) -> str:
     """Render a canonical single-line banner, centred or left-aligned."""
     opener, closer = syntax
     open_part = f"{opener} "
@@ -563,7 +599,9 @@ def _format_rule(indent: str, syntax: tuple[str, str], style: Style) -> str:
     open_part = f"{opener} "
     close_part = f" {closer}" if closer else ""
     indent_cols = _indent_width(indent, style.tab_width)
-    count = max(style.width - indent_cols - len(open_part) - len(close_part), style.min_run)
+    count = max(
+        style.width - indent_cols - len(open_part) - len(close_part), style.min_run
+    )
     return f"{indent}{open_part}{style.fill * count}{close_part}"
 
 
@@ -574,7 +612,9 @@ def _format_title_line(indent: str, syntax: tuple[str, str], title: str) -> str:
     return f"{indent}{opener} {title}{close_part}"
 
 
-def _render(indent: str, syntax: tuple[str, str], title: str, style: Style) -> list[str]:
+def _render(
+    indent: str, syntax: tuple[str, str], title: str, style: Style
+) -> list[str]:
     """Return the canonical output lines for a banner in the chosen style."""
     if style.style == "box":
         rule = _format_rule(indent, syntax, style)
@@ -612,7 +652,9 @@ def _title_limit(indent: str, syntax: tuple[str, str], style: Style) -> int:
     return min(fit, style.max_title) if style.max_title is not None else fit
 
 
-def _too_long_error(path: str, lineno: int, title: str, limit: int, style: Style) -> str:
+def _too_long_error(
+    path: str, lineno: int, title: str, limit: int, style: Style
+) -> str:
     """Build the error message for an over-long title."""
     base = (
         f"{path}:{lineno}: section title is {len(title)} chars but the limit is "
@@ -727,7 +769,9 @@ def process_text(
         if rule_syntax is not None:
             if style.dividers:
                 rule = _format_rule(_extract(c0, rule_syntax)[0], rule_syntax, style)
-                new_line = rule + (_eol(lines[i]) or file_eol) if _eol(lines[i]) else rule
+                new_line = (
+                    rule + (_eol(lines[i]) or file_eol) if _eol(lines[i]) else rule
+                )
                 out.append(new_line)
                 changed += new_line != lines[i]
             else:
@@ -740,7 +784,15 @@ def process_text(
         if match is not None:
             title, matched = match
             chunk, did, error = _emit_unit(
-                lines, i, i, _extract(c0, matched)[0], title, matched, style, path, file_eol
+                lines,
+                i,
+                i,
+                _extract(c0, matched)[0],
+                title,
+                matched,
+                style,
+                path,
+                file_eol,
             )
             out.append(chunk)
             changed += did

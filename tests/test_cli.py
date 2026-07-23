@@ -137,7 +137,10 @@ def test_custom_language_from_config(tmp_path):
 
 
 def test_malformed_custom_language_errors(tmp_path, capsys):
-    write(tmp_path / "pyproject.toml", '[tool.sectionise.language.bad]\nsuffixes = [".bad"]\n')
+    write(
+        tmp_path / "pyproject.toml",
+        '[tool.sectionise.language.bad]\nsuffixes = [".bad"]\n',
+    )
     f = write(tmp_path / "f.bad", "// --- x ---\n")
     assert main([str(f)]) == 2
     assert "custom language 'bad'" in capsys.readouterr().err

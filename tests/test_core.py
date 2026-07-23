@@ -24,103 +24,120 @@ Case = namedtuple("Case", "name style syntax src want")
 CASES = [
     Case(
         "centre from both sides",
-        dict(width=40), HASH,
+        dict(width=40),
+        HASH,
         "# ------- Loading -------\n",
         "# -------------- Loading ---------------\n",
     ),
     Case(
         "centre from trailing fill only",
-        dict(width=40), HASH,
+        dict(width=40),
+        HASH,
         "# Ancillary functions ------------------------------\n",
         "# -------- Ancillary functions ---------\n",
     ),
     Case(
         "centre from leading fill only",
-        dict(width=40), HASH,
+        dict(width=40),
+        HASH,
         "# ------------------------------ Ancillary functions\n",
         "# -------- Ancillary functions ---------\n",
     ),
     Case(
         "unicode em-dash fill becomes ascii",
-        dict(width=40), HASH,
+        dict(width=40),
+        HASH,
         "# ——— Loading ———\n",
         "# -------------- Loading ---------------\n",
     ),
     Case(
         "hash fill becomes dashes",
-        dict(width=40), HASH,
+        dict(width=40),
+        HASH,
         "##### basic #####\n",
         "# --------------- basic ----------------\n",
     ),
     Case(
         "left aligned title leads, fill trails",
-        dict(width=40, align="left"), HASH,
+        dict(width=40, align="left"),
+        HASH,
         "# --- Setup ---\n",
         "# Setup --------------------------------\n",
     ),
     Case(
         "box collapses to single",
-        dict(width=40, style="single"), HASH,
+        dict(width=40, style="single"),
+        HASH,
         "# ======\n# Setup\n# ======\n",
         "# --------------- Setup ----------------\n",
     ),
     Case(
         "single expands to box",
-        dict(width=40, style="box"), HASH,
+        dict(width=40, style="box"),
+        HASH,
         "# --- Setup ---\n",
         "# --------------------------------------\n# Setup\n# --------------------------------------\n",
     ),
     Case(
         "slash line comment",
-        dict(width=40), SLASH,
+        dict(width=40),
+        SLASH,
         "// --- Region ---\n",
         "// -------------- Region ---------------\n",
     ),
     Case(
         "c block comment stays a block comment",
-        dict(width=40), C,
+        dict(width=40),
+        C,
         "/* --- Setup --- */\n",
         "/* ------------- Setup -------------- */\n",
     ),
     Case(
         "html block comment",
-        dict(width=40), HTML,
+        dict(width=40),
+        HTML,
         "<!-- --- Part --- -->\n",
         "<!-- ------------ Part ------------- -->\n",
     ),
     Case(
         "trailing lone hash does not leak into title",
-        dict(width=60), HASH,
+        dict(width=60),
+        HASH,
         "# ---------------- model config ---------------- #\n",
         "# ---------------------- model config ----------------------\n",
     ),
     Case(
         "title-less divider left alone by default",
-        dict(width=40), HASH,
+        dict(width=40),
+        HASH,
         "# ==============================\n",
         "# ==============================\n",
     ),
     Case(
         "title-less divider normalised when dividers on",
-        dict(width=40, dividers=True), HASH,
+        dict(width=40, dividers=True),
+        HASH,
         "# ==============================\n",
         "# --------------------------------------\n",
     ),
     Case(
         "indentation preserved",
-        dict(width=40), HASH,
+        dict(width=40),
+        HASH,
         "    # ---- nested ----\n",
         "    # ------------- nested -------------\n",
     ),
     Case(
         "ordinary prose left alone",
-        dict(), HASH,
+        dict(),
+        HASH,
         "# a normal comment\n",
         "# a normal comment\n",
     ),
     Case(
         "crlf line ending preserved",
-        dict(width=40), HASH,
+        dict(width=40),
+        HASH,
         "# --- Setup ---\r\n",
         "# --------------- Setup ----------------\r\n",
     ),
@@ -173,10 +190,14 @@ def test_banner_inside_python_string_is_left_untouched():
 def test_banner_after_python_string_still_rewritten():
     text = 'x = """\n# ==== data ====\n"""\n# --- Real section ---\n'
     protected = core.protected_lines(text, ".py")
-    out, changed, _ = core.process_text(text, HASH, Style(width=40), protected=protected)
+    out, changed, _ = core.process_text(
+        text, HASH, Style(width=40), protected=protected
+    )
     assert changed == 1
     assert "# ==== data ====" in out
-    assert out.splitlines()[-1] == core._format_banner("", HASH, "Real section", Style(width=40))
+    assert out.splitlines()[-1] == core._format_banner(
+        "", HASH, "Real section", Style(width=40)
+    )
 
 
 def test_unparseable_python_falls_back_to_heuristic():
@@ -187,7 +208,9 @@ def test_unparseable_python_falls_back_to_heuristic():
 def test_backtick_template_literal_protects_banner():
     text = "const s = `\n// ==== not a comment ====\n`;\n"
     protected = core.protected_lines(text, ".ts")
-    out, changed, _ = core.process_text(text, SLASH, Style(width=60), protected=protected)
+    out, changed, _ = core.process_text(
+        text, SLASH, Style(width=60), protected=protected
+    )
     assert out == text
     assert changed == 0
 
@@ -235,7 +258,9 @@ def test_align_center_normalised_from_american_spelling():
 
 
 def test_tab_indent_counts_as_configured_columns():
-    out, _, _ = core.process_text("\t# --- nested ---\n", HASH, Style(width=40, tab_width=8))
+    out, _, _ = core.process_text(
+        "\t# --- nested ---\n", HASH, Style(width=40, tab_width=8)
+    )
     line = out.rstrip("\n")
     assert line.startswith("\t# ")
     assert len(line.expandtabs(8)) == 40
