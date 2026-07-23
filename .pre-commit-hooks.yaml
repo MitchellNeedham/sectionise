@@ -1,0 +1,8 @@
+- id: sectionise
+  name: Section header banners
+  description: >
+    Standardise section-header comment banners to one canonical style. Reads
+    settings from [tool.sectionise] in the repo's pyproject.toml; flags override.
+  entry: sectionise
+  language: python
+  types: [text]

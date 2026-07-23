@@ -1,0 +1,19 @@
+name: publish
+
+on:
+  push:
+    tags:
+      - "*.*.*"
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history + tags so hatch-vcs can read the version
+      - uses: astral-sh/setup-uv@v5
+      - run: uv build
+      - run: uv publish dist/*
+        env:
+          UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}

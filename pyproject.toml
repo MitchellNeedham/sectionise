@@ -1,0 +1,54 @@
+[build-system]
+build-backend = "hatchling.build"
+requires = [ "hatch-vcs", "hatchling" ]
+
+[project]
+name = "sectionise"
+description = "Standardise section-header comment banners"
+readme = "README.md"
+license = "MIT"
+authors = [ { name = "Mitchell Needham", email = "contact@mitchellneedham.com" } ]
+requires-python = ">=3.12"
+classifiers = [
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+]
+dynamic = [ "version" ]
+dependencies = [  ]
+keywords = [ "comments", "formatter", "linter", "pre-commit", "section-headers" ]
+
+urls.Homepage = "https://github.com/MitchellNeedham/sectionise"
+urls.Repository = "https://github.com/MitchellNeedham/sectionise"
+
+scripts.sectionise = "sectionise.cli:main"
+
+[dependency-groups]
+dev = [
+  "pre-commit>=4.5",
+  "pytest>=8",
+  "ruff>=0.14",
+]
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.ruff]
+lint.select = [ "E", "F", "I", "W" ]
+lint.extend-select = [ "D" ]
+lint.ignore = [ "D105", "D107", "D413", "E501" ]
+lint.per-file-ignores."**/*.py" = [ "E731", "F403", "F405" ]
+lint.per-file-ignores."**/{__init__,conftest}.py" = [ "F401", "F403" ]
+lint.per-file-ignores."**/__init__.py" = [ "D" ]
+lint.per-file-ignores."tests/**/*.py" = [ "D" ]
+lint.pydocstyle.convention = "google"
+
+[tool.pytest.ini_options]
+testpaths = [ "tests" ]
+
+# Dogfood: sectionise standardises its own section headers with these settings.
+[tool.sectionise]
+width = 88
+style = "single"
+fill = "-"
