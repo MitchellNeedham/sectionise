@@ -215,7 +215,10 @@ def main(argv: list[str] | None = None) -> int:
             all_errors.append(f"invalid configuration for {name}: {exc}")
             continue
         try:
-            raw = path.read_text(encoding="utf-8")
+            # newline="" disables universal-newline translation so a file's
+            # existing CRLF or LF endings survive the read/write round-trip.
+            with open(path, encoding="utf-8", newline="") as handle:
+                raw = handle.read()
         except UnicodeDecodeError:
             print(f"sectionise: skipped {name}: not valid UTF-8 text", file=sys.stderr)
             continue
@@ -231,7 +234,8 @@ def main(argv: list[str] | None = None) -> int:
             changed_files.append(name)
             if not args.check:
                 out_text = _BOM + new_text if bom else new_text
-                path.write_text(out_text, encoding="utf-8")
+                with open(path, "w", encoding="utf-8", newline="") as handle:
+                    handle.write(out_text)
 
     verb = "would reformat" if args.check else "reformatted"
     for name in changed_files:
