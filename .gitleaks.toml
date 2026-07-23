@@ -1,0 +1,10 @@
+title = "sectionise gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "The example env file carries only a placeholder token."
+paths = [
+  '''\.env\.example''',
+]
