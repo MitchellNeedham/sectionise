@@ -143,6 +143,14 @@ def test_preserves_indentation():
     assert len(new.rstrip("\n")) == 40
 
 
+def test_tab_indent_counts_as_configured_columns():
+    new, _, _ = core.process_text("\t# --- nested ---\n", HASH, Style(width=40, tab_width=8))
+    line = new.rstrip("\n")
+    assert line.startswith("\t# ")
+    # Expanding the tab to 8 columns, the banner spans exactly the target width.
+    assert len(line.expandtabs(8)) == 40
+
+
 def test_preserves_crlf_line_endings():
     text = "# --- Setup ---\r\n"
     new, _, _ = core.process_text(text, HASH, Style(width=40))

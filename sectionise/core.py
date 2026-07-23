@@ -31,6 +31,7 @@ DEFAULT_DETECT_CHARS = "-=*_~#—–─═"
 DEFAULT_MIN_RUN = 3
 DEFAULT_STYLE = "single"
 DEFAULT_ALIGN = "centre"
+DEFAULT_TAB_WIDTH = 8
 
 # Comment syntax as (opener, closer). The closer is empty for line comments and
 # non-empty for block comments. A language maps to a tuple of syntaxes; a banner
@@ -132,6 +133,8 @@ class Style:
         align: Single-line title placement, `centre` (fill both sides) or `left`
             (title first, fill trailing). The American spelling `center` is
             accepted and normalised to `centre`.
+        tab_width: Columns a leading tab occupies, so tab-indented banners reach
+            the target width.
         max_title: Optional hard cap on title length, on top of the width fit.
     """
 
@@ -144,6 +147,7 @@ class Style:
     boxes: bool = True
     style: str = DEFAULT_STYLE
     align: str = DEFAULT_ALIGN
+    tab_width: int = DEFAULT_TAB_WIDTH
     max_title: int | None = None
 
     def __post_init__(self) -> None:
@@ -164,6 +168,8 @@ class Style:
             raise ValueError(f"detect_chars must be a non-empty string, got {self.detect_chars!r}")
         if self.style not in ("single", "box"):
             raise ValueError(f"style must be 'single' or 'box', got {self.style!r}")
+        if not isinstance(self.tab_width, int) or isinstance(self.tab_width, bool) or self.tab_width < 1:
+            raise ValueError(f"tab_width must be a positive integer, got {self.tab_width!r}")
         if self.align == "center":
             object.__setattr__(self, "align", "centre")
         if self.align not in ("centre", "left"):
@@ -375,6 +381,14 @@ def _dominant_eol(text: str) -> str:
     return "\r\n" if crlf > lf else "\n"
 
 
+def _indent_width(indent: str, tab_width: int) -> int:
+    """Return the display column count of an indent, expanding tabs to stops."""
+    col = 0
+    for char in indent:
+        col += tab_width - (col % tab_width) if char == "\t" else 1
+    return col
+
+
 def _content(line: str) -> str:
     """Return `line` without its trailing newline."""
     return line.rstrip("\r\n")
@@ -531,11 +545,12 @@ def _format_banner(indent: str, syntax: tuple[str, str], title: str, style: Styl
     opener, closer = syntax
     open_part = f"{opener} "
     close_part = f" {closer}" if closer else ""
+    indent_cols = _indent_width(indent, style.tab_width)
     if style.align == "left":
-        prefix = f"{indent}{open_part}{title} "
-        count = max(style.width - len(prefix) - len(close_part), style.min_run)
-        return f"{prefix}{style.fill * count}{close_part}"
-    fixed = len(indent) + len(open_part) + 1 + len(title) + 1 + len(close_part)
+        used = indent_cols + len(open_part) + len(title) + 1 + len(close_part)
+        count = max(style.width - used, style.min_run)
+        return f"{indent}{open_part}{title} {style.fill * count}{close_part}"
+    fixed = indent_cols + len(open_part) + 1 + len(title) + 1 + len(close_part)
     total = max(style.width - fixed, 2 * style.min_run)
     left = total // 2
     right = total - left
@@ -547,7 +562,8 @@ def _format_rule(indent: str, syntax: tuple[str, str], style: Style) -> str:
     opener, closer = syntax
     open_part = f"{opener} "
     close_part = f" {closer}" if closer else ""
-    count = max(style.width - len(indent) - len(open_part) - len(close_part), style.min_run)
+    indent_cols = _indent_width(indent, style.tab_width)
+    count = max(style.width - indent_cols - len(open_part) - len(close_part), style.min_run)
     return f"{indent}{open_part}{style.fill * count}{close_part}"
 
 
@@ -571,12 +587,13 @@ def _title_limit(indent: str, syntax: tuple[str, str], style: Style) -> int:
     opener, closer = syntax
     open_part = f"{opener} "
     close_part = f" {closer}" if closer else ""
+    indent_cols = _indent_width(indent, style.tab_width)
     if style.style == "box":
-        fit = style.width - len(indent) - len(open_part) - len(close_part)
+        fit = style.width - indent_cols - len(open_part) - len(close_part)
     elif style.align == "left":
         fit = (
             style.width
-            - len(indent)
+            - indent_cols
             - len(open_part)
             - 1  # the space between the title and its trailing fill
             - len(close_part)
@@ -585,7 +602,7 @@ def _title_limit(indent: str, syntax: tuple[str, str], style: Style) -> int:
     else:
         fit = (
             style.width
-            - len(indent)
+            - indent_cols
             - len(open_part)
             - 2  # the two spaces framing the title
             - len(close_part)

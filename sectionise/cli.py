@@ -139,6 +139,9 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--min-run", type=int, default=None, help="Minimum fill-run length.")
     parser.add_argument(
+        "--tab-width", type=int, default=None, help="Columns a leading tab occupies (default 8)."
+    )
+    parser.add_argument(
         "--style", choices=("single", "box"), default=None, help="Output form."
     )
     parser.add_argument(
@@ -213,6 +216,7 @@ def _resolve_style(
         boxes=pick(args.boxes, "boxes", True),
         style=pick(args.style, "style", core.DEFAULT_STYLE),
         align=pick(args.align, "align", core.DEFAULT_ALIGN),
+        tab_width=pick(args.tab_width, "tab_width", core.DEFAULT_TAB_WIDTH),
         max_title=pick(args.max_title, "max_title", None),
     )
 
