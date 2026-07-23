@@ -41,15 +41,66 @@ overflowed.
 ## Supported languages
 
 Extensions are recognised out of the box, each with an opinionated default width
-matching its dominant formatter or style guide. Any default can be overridden
-globally or per language (see [Configuration](#configuration)).
+matching its dominant formatter or style guide (Black 88 for Python, Prettier 80
+for the web languages, rustfmt/Google 100, Microsoft/SwiftLint/RuboCop 120). Any
+default can be overridden globally or per language (see
+[Configuration](#configuration)).
 
-| Default width | Languages |
-| --- | --- |
-| 80 | JavaScript, TypeScript, C, C++, Scala, Dart, Lua, CSS, SCSS/LESS, shell, TOML, YAML, INI, HTML, XML, Markdown, Perl, R, Terraform |
-| 88 | Python, SQL |
-| 100 | Java, Kotlin, Go, Rust |
-| 120 | C#, Swift, Ruby |
+Each language rewrites at its own default width, in its own comment syntax:
+
+```
+# python (88)
+# ----------------------------------- Loading models -----------------------------------
+
+// javascript (80)
+// ------------------------------ Loading models -------------------------------
+
+// csharp (120)
+// -------------------------------------------------- Loading models ---------------------------------------------------
+
+-- sql (88)
+-- ---------------------------------- Loading models -----------------------------------
+
+/* css (80) */
+/* ----------------------------- Loading models ----------------------------- */
+
+<!-- html (80) -->
+<!-- --------------------------- Loading models ---------------------------- -->
+```
+
+The `Language` column below is the canonical name used to key a
+`[tool.sectionise.language.<name>]` override.
+
+| Language | Extensions | Default width |
+| --- | --- | --- |
+| `python` | `.py`, `.pyi` | 88 |
+| `shell` | `.sh`, `.bash` | 80 |
+| `toml` | `.toml` | 80 |
+| `yaml` | `.yaml`, `.yml` | 80 |
+| `ini` | `.ini`, `.cfg` | 80 |
+| `ruby` | `.rb` | 120 |
+| `perl` | `.pl`, `.pm` | 80 |
+| `r` | `.r` | 80 |
+| `javascript` | `.js`, `.jsx`, `.mjs`, `.cjs` | 80 |
+| `typescript` | `.ts`, `.tsx` | 80 |
+| `c` | `.c`, `.h` | 80 |
+| `cpp` | `.cpp`, `.cc`, `.cxx`, `.hpp`, `.hh` | 80 |
+| `csharp` | `.cs` | 120 |
+| `java` | `.java` | 100 |
+| `kotlin` | `.kt`, `.kts` | 100 |
+| `swift` | `.swift` | 120 |
+| `scala` | `.scala` | 80 |
+| `dart` | `.dart` | 80 |
+| `go` | `.go` | 100 |
+| `rust` | `.rs` | 100 |
+| `css` | `.css` | 80 |
+| `scss` | `.scss`, `.less` | 80 |
+| `sql` | `.sql` | 88 |
+| `lua` | `.lua` | 80 |
+| `terraform` | `.tf` | 80 |
+| `html` | `.html`, `.htm` | 80 |
+| `xml` | `.xml` | 80 |
+| `markdown` | `.md` | 80 |
 
 Extensionless scripts are recognised by their `#!` shebang (for example
 `#!/usr/bin/env python`). Anything not listed can be added as a
@@ -132,10 +183,56 @@ encoding = "utf-8"
 | `encoding` | `--encoding` | `utf-8` | Text encoding used to read and write files. |
 | `max_title` | `--max-title` | none | Hard cap on title length, on top of the width fit. |
 
+### Example configurations
+
+Box (three-line) headers, filled with `=`:
+
+```toml
+[tool.sectionise]
+style = "box"
+fill = "="
+```
+
+A Python banner then rewrites to a rule, the title, and a rule, all at the
+88-column default:
+
+```
+# ======================================================================================
+# Loading models
+# ======================================================================================
+```
+
+Left-aligned single-line headers (title first, fill trailing):
+
+```toml
+[tool.sectionise]
+align = "left"
+```
+
+```
+# Loading models -----------------------------------------------------------------------
+```
+
+Any single non-space character is a valid fill, including an emoji:
+
+```toml
+[tool.sectionise]
+fill = "🚀"
+width = 40
+```
+
+```
+# 🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀 Deploy to prod 🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀
+```
+
+`width` counts characters, not display columns, so a double-width emoji fill
+lands on target by count but overshoots visually. Fun, not recommended.
+
 ### Per-language overrides
 
 Tune any setting for one language with a `[tool.sectionise.language.<name>]`
-table. Names are those in [Supported languages](#supported-languages).
+table, where `<name>` is a `Language` from
+[Supported languages](#supported-languages).
 
 ```toml
 [tool.sectionise]
