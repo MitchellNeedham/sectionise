@@ -297,6 +297,29 @@ def test_mismatched_rules_around_comment_not_merged():
     assert changed == 0
 
 
+@pytest.mark.parametrize("width", [12, 20, 40, 88])
+def test_box_rule_lines_span_the_target_width(width):
+    out, _, _ = core.process_text(
+        "# --- Setup ---\n", HASH, Style(style="box", width=width)
+    )
+    rule, title, rule2 = out.splitlines()
+    assert rule == rule2
+    assert len(rule) == width
+    assert title == "# Setup"
+
+
+@pytest.mark.parametrize("min_run", [3, 5, 8])
+def test_box_rule_never_shorter_than_min_run(min_run):
+    # At a width too small to reach, the rule floors at min_run rather than vanishing.
+    out, _, errors = core.process_text(
+        "# ---------- OK ----------\n",
+        HASH,
+        Style(style="box", width=4, min_run=min_run),
+    )
+    assert errors == []
+    assert out.splitlines()[0] == "# " + "-" * min_run
+
+
 # ---------------------------- Over-long titles -------------------------------
 def test_too_long_single_title_errors_and_leaves_unchanged():
     text = "# --- a very long section title indeed ---\n"
