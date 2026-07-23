@@ -8,12 +8,13 @@ pre-commit formatter convention.
 
 import argparse
 import codecs
+import difflib
 import os
 import sys
 import tomllib
 from pathlib import Path
 
-from . import core
+from . import __version__, core
 
 _BOM = chr(0xFEFF)  # UTF-8 byte-order mark, kept and re-applied verbatim
 
@@ -116,10 +117,16 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="sectionise",
         description="Standardise section-header comment banners.",
     )
-    parser.add_argument("filenames", nargs="*", help="Files to process.")
+    parser.add_argument("filenames", nargs="*", help="Files to process, or - for stdin.")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("--config", type=Path, default=None, help="pyproject.toml to read.")
     parser.add_argument(
         "--encoding", default=None, help="Text encoding to read and write files as (default utf-8)."
+    )
+    parser.add_argument(
+        "--stdin-filename",
+        default=None,
+        help="Name used to pick the comment syntax when reading stdin (default a .py name).",
     )
     parser.add_argument("--width", type=int, default=None, help="Target line length.")
     parser.add_argument("--fill", default=None, help="Output fill character.")
@@ -153,6 +160,9 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--check", action="store_true", help="Report only; do not rewrite files."
+    )
+    parser.add_argument(
+        "--diff", action="store_true", help="Print a unified diff of changes; do not rewrite."
     )
     return parser
 
@@ -192,6 +202,56 @@ def _resolve_encoding(args: argparse.Namespace, config: dict) -> str:
     return encoding
 
 
+def _unified_diff(old: str, new: str, name: str) -> str:
+    """Return a unified diff from `old` to `new`, or empty when identical."""
+    lines = difflib.unified_diff(
+        old.splitlines(), new.splitlines(), fromfile=name, tofile=name, lineterm=""
+    )
+    return "\n".join(lines)
+
+
+def _run_stdin(args: argparse.Namespace, forced_config: dict | None) -> int:
+    """Process stdin and write the result (or a diff) to stdout.
+
+    Args:
+        args: Parsed arguments.
+        forced_config: Config from `--config`, or `None` to look one up.
+
+    Returns:
+        `0` clean, `1` changed (or would change), `2` on error.
+    """
+    stdin_name = args.stdin_filename or "stdin.py"
+    suffix = Path(stdin_name).suffix
+    syntax = core.syntax_for(suffix)
+    if syntax is None:
+        print(f"sectionise: unsupported stdin filename {stdin_name!r}", file=sys.stderr)
+        return 2
+    config = forced_config if forced_config is not None else _load_config(_find_pyproject(Path.cwd()))
+    try:
+        style = _resolve_style(args, config)
+        _resolve_encoding(args, config)
+    except ValueError as exc:
+        print(f"sectionise: invalid configuration: {exc}", file=sys.stderr)
+        return 2
+
+    text = sys.stdin.read()
+    protected = core.protected_lines(text, suffix)
+    new_text, changed, errors = core.process_text(text, syntax, style, stdin_name, protected)
+    for error in errors:
+        print(error, file=sys.stderr)
+
+    if args.diff:
+        diff = _unified_diff(text, new_text, stdin_name)
+        if diff:
+            print(diff)
+    elif not args.check:
+        sys.stdout.write(new_text)
+
+    if errors:
+        return 2
+    return 1 if changed else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Lint or autofix section-header banners in the given files.
 
@@ -205,6 +265,9 @@ def main(argv: list[str] | None = None) -> int:
     """
     args = _build_parser().parse_args(argv)
     forced_config = _load_config(args.config) if args.config else None
+
+    if args.filenames == ["-"]:
+        return _run_stdin(args, forced_config)
 
     files, warnings = _collect_targets(args.filenames)
     for warning in warnings:
@@ -250,14 +313,17 @@ def main(argv: list[str] | None = None) -> int:
         all_errors.extend(errors)
         if changed:
             changed_files.append(name)
-            if not args.check:
+            if args.diff:
+                print(_unified_diff(text, new_text, name))
+            elif not args.check:
                 out_text = _BOM + new_text if bom else new_text
                 with open(path, "w", encoding=encoding, newline="") as handle:
                     handle.write(out_text)
 
-    verb = "would reformat" if args.check else "reformatted"
-    for name in changed_files:
-        print(f"{verb} section headers in {name}")
+    if not args.diff:
+        verb = "would reformat" if args.check else "reformatted"
+        for name in changed_files:
+            print(f"{verb} section headers in {name}")
     for error in dict.fromkeys(all_errors):  # dedupe repeated config errors
         print(error, file=sys.stderr)
     if all_errors:
