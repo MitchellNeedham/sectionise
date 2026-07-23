@@ -141,6 +141,73 @@ CASES = [
         "# --- Setup ---\r\n",
         "# --------------- Setup ----------------\r\n",
     ),
+    # Three-line box output, one row per comment syntax (hash is "single expands
+    # to box" above).
+    Case(
+        "box output, slash",
+        dict(width=40, style="box"),
+        SLASH,
+        "// --- Setup ---\n",
+        "// -------------------------------------\n// Setup\n// -------------------------------------\n",
+    ),
+    Case(
+        "box output, block comment",
+        dict(width=40, style="box"),
+        C,
+        "/* --- Setup --- */\n",
+        "/* ---------------------------------- */\n/* Setup */\n/* ---------------------------------- */\n",
+    ),
+    Case(
+        "box output, html",
+        dict(width=40, style="box"),
+        HTML,
+        "<!-- --- Part --- -->\n",
+        "<!-- ------------------------------- -->\n<!-- Part -->\n<!-- ------------------------------- -->\n",
+    ),
+    Case(
+        "canonical box left unchanged",
+        dict(width=40, style="box"),
+        HASH,
+        "# --------------------------------------\n# Setup\n# --------------------------------------\n",
+        "# --------------------------------------\n# Setup\n# --------------------------------------\n",
+    ),
+    # Box collapses back to a single line, one row per comment syntax.
+    Case(
+        "box collapses, slash",
+        dict(width=40, style="single"),
+        SLASH,
+        "// ======\n// Setup\n// ======\n",
+        "// --------------- Setup ---------------\n",
+    ),
+    Case(
+        "box collapses, block comment",
+        dict(width=40, style="single"),
+        C,
+        "/* ====== */\n/* Setup */\n/* ====== */\n",
+        "/* ------------- Setup -------------- */\n",
+    ),
+    Case(
+        "box collapses, html",
+        dict(width=40, style="single"),
+        HTML,
+        "<!-- ====== -->\n<!-- Part -->\n<!-- ====== -->\n",
+        "<!-- ------------ Part ------------- -->\n",
+    ),
+    # HTML single-line variants.
+    Case(
+        "html trailing fill only",
+        dict(width=40),
+        HTML,
+        "<!-- Part ---------------------- -->\n",
+        "<!-- ------------ Part ------------- -->\n",
+    ),
+    Case(
+        "html leading fill only",
+        dict(width=40),
+        HTML,
+        "<!-- ---------------------- Part -->\n",
+        "<!-- ------------ Part ------------- -->\n",
+    ),
 ]
 
 
