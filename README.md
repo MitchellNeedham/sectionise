@@ -118,7 +118,7 @@ pip install sectionise
 
 ```yaml
 - repo: https://github.com/MitchellNeedham/sectionise
-  rev: 0.1.0
+  rev: 0.2.0
   hooks:
       - id: sectionise
 ```
