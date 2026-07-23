@@ -101,6 +101,8 @@ class Style:
         require_both_sides: Only treat a comment as a banner when it has a fill
             run on both sides of the title.
         dividers: Also standardise stand-alone title-less rules.
+        boxes: Recognise the three-line box form (rule / title / rule) as a
+            banner. When off, box-shaped headers are left untouched.
         style: Output form, `single` (one line) or `box` (three lines).
         max_title: Optional hard cap on title length, on top of the width fit.
     """
@@ -111,6 +113,7 @@ class Style:
     min_run: int = DEFAULT_MIN_RUN
     require_both_sides: bool = False
     dividers: bool = False
+    boxes: bool = True
     style: str = DEFAULT_STYLE
     max_title: int | None = None
 
@@ -346,13 +349,24 @@ def _match_rule(content: str, syntaxes: Syntaxes, style: Style) -> Syntax | None
     return None
 
 
+def _rule_char(content: str, syntax: Syntax, style: Style) -> str | None:
+    """Return the fill character of a title-less rule line, else `None`."""
+    extracted = _extract(content, syntax)
+    if extracted is None:
+        return None
+    stripped = extracted[1].strip()
+    return stripped[0] if stripped and stripped[0] in style.detect_chars else None
+
+
 def _match_box(
     lines: list[str], i: int, syntaxes: Syntaxes, style: Style
 ) -> tuple[str, str, Syntax] | None:
     """Return `(indent, title, syntax)` if lines `i..i+2` form a three-line box.
 
-    A box is a rule, a title comment, and a rule, all written in the same
-    comment syntax at the same indent. The caller guarantees `i + 2` is in range.
+    A box is a rule, a title comment, and a rule, all in the same comment syntax
+    and indent. The two rules must share a fill character, so two unrelated
+    dividers happening to bracket an ordinary comment are not merged into a
+    header. The caller guarantees `i + 2` is in range.
     """
     c0, c1, c2 = (_content(lines[i + offset]) for offset in range(3))
     for syntax in syntaxes:
@@ -361,6 +375,8 @@ def _match_box(
             and not _is_rule(c1, syntax, style)
             and _is_rule(c2, syntax, style)
         ):
+            continue
+        if _rule_char(c0, syntax, style) != _rule_char(c2, syntax, style):
             continue
         title = _box_title(c1, syntax, style)
         indents = [_extract(c, syntax) for c in (c0, c1, c2)]
@@ -521,7 +537,7 @@ def process_text(
         c0 = _content(lines[i])
 
         # Three-line box: rule / title comment / rule, all the same indent.
-        if i + 2 < n and not (protected & {i + 1, i + 2}):
+        if style.boxes and i + 2 < n and not (protected & {i + 1, i + 2}):
             box = _match_box(lines, i, syntaxes, style)
             if box is not None:
                 indent, title, matched = box

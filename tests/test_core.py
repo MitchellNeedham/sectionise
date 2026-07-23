@@ -205,6 +205,28 @@ def test_c_block_box_collapses_to_single_block_banner():
     assert new.rstrip("\n").startswith("/* ") and new.rstrip("\n").endswith(" */")
 
 
+def test_boxes_disabled_leaves_box_untouched():
+    text = "# ======\n# Setup\n# ======\n"
+    new, changed, _ = core.process_text(text, HASH, Style(boxes=False, width=40))
+    assert changed == 0
+    assert new == text
+
+
+def test_mismatched_rules_around_comment_not_merged():
+    text = "# =====================\n# TODO fix this later\n# ---------------------\n"
+    new, changed, _ = core.process_text(text, HASH, Style(width=40))
+    assert changed == 0
+    assert new == text
+
+
+def test_matching_rules_still_form_a_box():
+    text = "# =====================\n# TODO fix this later\n# =====================\n"
+    new, changed, _ = core.process_text(text, HASH, Style(style="single", width=40))
+    assert changed == 1
+    assert new.count("\n") == 1
+    assert " TODO fix this later " in new
+
+
 def test_css_is_block_only_and_ignores_slashes():
     syntaxes = core.syntax_for(".css")
     assert syntaxes == (("/*", "*/"),)

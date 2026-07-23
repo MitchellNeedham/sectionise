@@ -81,6 +81,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Also standardise stand-alone title-less rules.",
     )
     parser.add_argument(
+        "--boxes",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Recognise three-line box headers (on by default).",
+    )
+    parser.add_argument(
         "--check", action="store_true", help="Report only; do not rewrite files."
     )
     return parser
@@ -101,6 +107,7 @@ def _resolve_style(args: argparse.Namespace, config: dict) -> core.Style:
         min_run=pick(args.min_run, "min_run", core.DEFAULT_MIN_RUN),
         require_both_sides=pick(args.require_both_sides, "require_both_sides", False),
         dividers=pick(args.dividers, "dividers", False),
+        boxes=pick(args.boxes, "boxes", True),
         style=pick(args.style, "style", core.DEFAULT_STYLE),
         max_title=pick(args.max_title, "max_title", None),
     )
