@@ -7,6 +7,7 @@ pre-commit formatter convention.
 """
 
 import argparse
+import codecs
 import os
 import sys
 import tomllib
@@ -117,6 +118,9 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("filenames", nargs="*", help="Files to process.")
     parser.add_argument("--config", type=Path, default=None, help="pyproject.toml to read.")
+    parser.add_argument(
+        "--encoding", default=None, help="Text encoding to read and write files as (default utf-8)."
+    )
     parser.add_argument("--width", type=int, default=None, help="Target line length.")
     parser.add_argument("--fill", default=None, help="Output fill character.")
     parser.add_argument(
@@ -174,6 +178,20 @@ def _resolve_style(args: argparse.Namespace, config: dict) -> core.Style:
     )
 
 
+def _resolve_encoding(args: argparse.Namespace, config: dict) -> str:
+    """Merge the `--encoding` flag over `pyproject.toml` over the utf-8 default.
+
+    Raises:
+        ValueError: If the resolved encoding name is not one Python knows.
+    """
+    encoding = args.encoding if args.encoding is not None else config.get("encoding", "utf-8")
+    try:
+        codecs.lookup(encoding)
+    except (LookupError, TypeError) as exc:
+        raise ValueError(f"unknown encoding {encoding!r}") from exc
+    return encoding
+
+
 def main(argv: list[str] | None = None) -> int:
     """Lint or autofix section-header banners in the given files.
 
@@ -195,14 +213,14 @@ def main(argv: list[str] | None = None) -> int:
     # Resolve settings from each file's own nearest pyproject.toml (unless one is
     # forced with --config), so a monorepo's per-package overrides are honoured.
     # Cache by the resolved config path so each pyproject is read once.
-    style_cache: dict[Path | None, core.Style] = {}
+    settings_cache: dict[Path | None, tuple[core.Style, str]] = {}
 
-    def resolve_for(path: Path) -> core.Style:
+    def resolve_for(path: Path) -> tuple[core.Style, str]:
         key = args.config if forced_config is not None else _find_pyproject(path.parent)
-        if key not in style_cache:
+        if key not in settings_cache:
             config = forced_config if forced_config is not None else _load_config(key)
-            style_cache[key] = _resolve_style(args, config)
-        return style_cache[key]
+            settings_cache[key] = (_resolve_style(args, config), _resolve_encoding(args, config))
+        return settings_cache[key]
 
     changed_files: list[str] = []
     all_errors: list[str] = []
@@ -210,17 +228,17 @@ def main(argv: list[str] | None = None) -> int:
         name = str(path)
         syntax = core.syntax_for(path.suffix)
         try:
-            style = resolve_for(path)
+            style, encoding = resolve_for(path)
         except ValueError as exc:
             all_errors.append(f"invalid configuration for {name}: {exc}")
             continue
         try:
             # newline="" disables universal-newline translation so a file's
             # existing CRLF or LF endings survive the read/write round-trip.
-            with open(path, encoding="utf-8", newline="") as handle:
+            with open(path, encoding=encoding, newline="") as handle:
                 raw = handle.read()
         except UnicodeDecodeError:
-            print(f"sectionise: skipped {name}: not valid UTF-8 text", file=sys.stderr)
+            print(f"sectionise: skipped {name}: not valid {encoding} text", file=sys.stderr)
             continue
         except OSError as exc:
             print(f"sectionise: skipped {name}: {exc.strerror or exc}", file=sys.stderr)
@@ -234,7 +252,7 @@ def main(argv: list[str] | None = None) -> int:
             changed_files.append(name)
             if not args.check:
                 out_text = _BOM + new_text if bom else new_text
-                with open(path, "w", encoding="utf-8", newline="") as handle:
+                with open(path, "w", encoding=encoding, newline="") as handle:
                     handle.write(out_text)
 
     verb = "would reformat" if args.check else "reformatted"
