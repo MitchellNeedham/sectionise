@@ -179,8 +179,9 @@ def main(argv: list[str] | None = None) -> int:
         argv: Argument list; defaults to `sys.argv[1:]`.
 
     Returns:
-        `1` if any file was (or would be) changed or a title was too long, else
-        `0`.
+        `0` when nothing needs changing, `1` when a file was (or would be)
+        reformatted, and `2` when a title was too long to fit. A `2` outranks a
+        `1`: a hard error is reported even if other files also changed.
     """
     args = _build_parser().parse_args(argv)
     forced_config = _load_config(args.config) if args.config else None
@@ -227,8 +228,10 @@ def main(argv: list[str] | None = None) -> int:
     for name in changed_files:
         print(f"{verb} section headers in {name}")
     for error in all_errors:
-        print(error)
-    return 1 if changed_files or all_errors else 0
+        print(error, file=sys.stderr)
+    if all_errors:
+        return 2
+    return 1 if changed_files else 0
 
 
 if __name__ == "__main__":
