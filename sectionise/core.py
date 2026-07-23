@@ -117,6 +117,35 @@ class Style:
     style: str = DEFAULT_STYLE
     max_title: int | None = None
 
+    def __post_init__(self) -> None:
+        """Validate settings and ensure the fill character is also detectable.
+
+        Raises:
+            ValueError: If any setting is out of range or the wrong type. The
+                message names the offending setting so a bad `pyproject.toml` is
+                easy to fix.
+        """
+        if not isinstance(self.width, int) or isinstance(self.width, bool) or self.width < 1:
+            raise ValueError(f"width must be a positive integer, got {self.width!r}")
+        if not isinstance(self.min_run, int) or isinstance(self.min_run, bool) or self.min_run < 1:
+            raise ValueError(f"min_run must be a positive integer, got {self.min_run!r}")
+        if not isinstance(self.fill, str) or len(self.fill) != 1 or self.fill.isspace():
+            raise ValueError(f"fill must be a single non-space character, got {self.fill!r}")
+        if not isinstance(self.detect_chars, str) or not self.detect_chars:
+            raise ValueError(f"detect_chars must be a non-empty string, got {self.detect_chars!r}")
+        if self.style not in ("single", "box"):
+            raise ValueError(f"style must be 'single' or 'box', got {self.style!r}")
+        if self.max_title is not None and (
+            not isinstance(self.max_title, int)
+            or isinstance(self.max_title, bool)
+            or self.max_title < 1
+        ):
+            raise ValueError(f"max_title must be a positive integer or unset, got {self.max_title!r}")
+        # The output fill must be recognised on the next run, else a freshly
+        # written banner would not be seen as one and could not be re-fitted.
+        if self.fill not in self.detect_chars:
+            object.__setattr__(self, "detect_chars", self.detect_chars + self.fill)
+
 
 Syntax = tuple[str, str]
 Syntaxes = tuple[Syntax, ...]

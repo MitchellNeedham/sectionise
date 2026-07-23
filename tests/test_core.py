@@ -1,9 +1,38 @@
+import pytest
+
 from sectionise import core
 from sectionise.core import Style
 
 HASH = ("#", "")
 SLASH = ("//", "")
 HTML = ("<!--", "-->")
+
+
+@pytest.mark.parametrize(
+    "kwargs, message",
+    [
+        ({"width": 0}, "width"),
+        ({"width": -5}, "width"),
+        ({"min_run": 0}, "min_run"),
+        ({"fill": "--"}, "fill"),
+        ({"fill": " "}, "fill"),
+        ({"detect_chars": ""}, "detect_chars"),
+        ({"style": "banner"}, "style"),
+        ({"max_title": 0}, "max_title"),
+    ],
+)
+def test_invalid_settings_raise_clear_errors(kwargs, message):
+    with pytest.raises(ValueError, match=message):
+        Style(**kwargs)
+
+
+def test_fill_is_added_to_detect_chars_for_idempotency():
+    style = Style(fill="+", detect_chars="-=")
+    assert "+" in style.detect_chars
+    # A banner written with the fill is then re-detected and left unchanged.
+    once = core._format_banner("", HASH, "Title", style)
+    new, changed, _ = core.process_text(once + "\n", HASH, style)
+    assert changed == 0
 
 
 def test_single_banner_centres_and_fits_width():

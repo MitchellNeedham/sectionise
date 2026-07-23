@@ -207,7 +207,11 @@ def main(argv: list[str] | None = None) -> int:
     for path in files:
         name = str(path)
         syntax = core.syntax_for(path.suffix)
-        style = resolve_for(path)
+        try:
+            style = resolve_for(path)
+        except ValueError as exc:
+            all_errors.append(f"invalid configuration for {name}: {exc}")
+            continue
         try:
             text = path.read_text(encoding="utf-8")
         except UnicodeDecodeError:
@@ -227,7 +231,7 @@ def main(argv: list[str] | None = None) -> int:
     verb = "would reformat" if args.check else "reformatted"
     for name in changed_files:
         print(f"{verb} section headers in {name}")
-    for error in all_errors:
+    for error in dict.fromkeys(all_errors):  # dedupe repeated config errors
         print(error, file=sys.stderr)
     if all_errors:
         return 2
