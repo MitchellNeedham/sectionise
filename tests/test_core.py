@@ -172,3 +172,46 @@ def test_backtick_template_literal_protects_banner():
     new, changed, _ = core.process_text(text, SLASH, Style(width=60), protected=protected)
     assert changed == 0
     assert new == text
+
+
+def test_c_block_comment_banner_normalises_and_stays_block():
+    syntaxes = core.syntax_for(".c")
+    text = "/* ==== Setup ==== */\n"
+    new, changed, _ = core.process_text(text, syntaxes, Style(width=50))
+    assert changed == 1
+    line = new.rstrip("\n")
+    assert line.startswith("/* ") and line.endswith(" */")
+    assert len(line) == 50
+    assert " Setup " in line
+
+
+def test_c_family_preserves_each_comment_form():
+    syntaxes = core.syntax_for(".ts")
+    text = "// --- One ---\n/* --- Two --- */\n"
+    new, changed, _ = core.process_text(text, syntaxes, Style(width=40))
+    assert changed == 2
+    lines = new.splitlines()
+    assert lines[0].startswith("// ") and not lines[0].endswith("*/")
+    assert lines[1].startswith("/* ") and lines[1].endswith(" */")
+    assert len(lines[0]) == 40 and len(lines[1]) == 40
+
+
+def test_c_block_box_collapses_to_single_block_banner():
+    syntaxes = core.syntax_for(".c")
+    text = "/* ------ */\n/* Setup */\n/* ------ */\n"
+    new, changed, _ = core.process_text(text, syntaxes, Style(style="single", width=40))
+    assert changed == 1
+    assert new.count("\n") == 1
+    assert new.rstrip("\n").startswith("/* ") and new.rstrip("\n").endswith(" */")
+
+
+def test_css_is_block_only_and_ignores_slashes():
+    syntaxes = core.syntax_for(".css")
+    assert syntaxes == (("/*", "*/"),)
+    new, changed, _ = core.process_text("/* ==== Layout ==== */\n", syntaxes, Style(width=40))
+    assert changed == 1
+    assert new.rstrip("\n").endswith(" */")
+    css_slash = "// not a css comment\n"
+    unchanged, changed2, _ = core.process_text(css_slash, syntaxes, Style(width=40))
+    assert changed2 == 0
+    assert unchanged == css_slash

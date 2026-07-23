@@ -31,38 +31,48 @@ DEFAULT_DETECT_CHARS = "-=*_~#—–─═"
 DEFAULT_MIN_RUN = 3
 DEFAULT_STYLE = "single"
 
-# Comment syntax per file extension as (opener, closer). The closer is empty for
-# line comments and non-empty for block comments (HTML/XML/Markdown).
+# Comment syntax as (opener, closer). The closer is empty for line comments and
+# non-empty for block comments. A language maps to a tuple of syntaxes; a banner
+# is detected under any of them and re-rendered in whichever one it was written.
 _LINE_HASH = ("#", "")
 _LINE_SLASH = ("//", "")
 _BLOCK_HTML = ("<!--", "-->")
+_BLOCK_C = ("/*", "*/")
+
+# C-family accepts both `//` line and `/* */` block banners. CSS has no `//`
+# comment form at all, so it is block only; SCSS/LESS add the `//` form back.
+_CFAMILY = (_LINE_SLASH, _BLOCK_C)
+_CSS = (_BLOCK_C,)
+_SCSS = (_LINE_SLASH, _BLOCK_C)
 
 _SYNTAX_BY_SUFFIX = {
-    ".py": _LINE_HASH,
-    ".pyi": _LINE_HASH,
-    ".sh": _LINE_HASH,
-    ".bash": _LINE_HASH,
-    ".toml": _LINE_HASH,
-    ".yaml": _LINE_HASH,
-    ".yml": _LINE_HASH,
-    ".cfg": _LINE_HASH,
-    ".ini": _LINE_HASH,
-    ".js": _LINE_SLASH,
-    ".jsx": _LINE_SLASH,
-    ".ts": _LINE_SLASH,
-    ".tsx": _LINE_SLASH,
-    ".c": _LINE_SLASH,
-    ".h": _LINE_SLASH,
-    ".cpp": _LINE_SLASH,
-    ".cc": _LINE_SLASH,
-    ".java": _LINE_SLASH,
-    ".css": _LINE_SLASH,
-    ".go": _LINE_SLASH,
-    ".rs": _LINE_SLASH,
-    ".html": _BLOCK_HTML,
-    ".htm": _BLOCK_HTML,
-    ".xml": _BLOCK_HTML,
-    ".md": _BLOCK_HTML,
+    ".py": (_LINE_HASH,),
+    ".pyi": (_LINE_HASH,),
+    ".sh": (_LINE_HASH,),
+    ".bash": (_LINE_HASH,),
+    ".toml": (_LINE_HASH,),
+    ".yaml": (_LINE_HASH,),
+    ".yml": (_LINE_HASH,),
+    ".cfg": (_LINE_HASH,),
+    ".ini": (_LINE_HASH,),
+    ".js": _CFAMILY,
+    ".jsx": _CFAMILY,
+    ".ts": _CFAMILY,
+    ".tsx": _CFAMILY,
+    ".c": _CFAMILY,
+    ".h": _CFAMILY,
+    ".cpp": _CFAMILY,
+    ".cc": _CFAMILY,
+    ".java": _CFAMILY,
+    ".css": _CSS,
+    ".scss": _SCSS,
+    ".less": _SCSS,
+    ".go": _CFAMILY,
+    ".rs": _CFAMILY,
+    ".html": (_BLOCK_HTML,),
+    ".htm": (_BLOCK_HTML,),
+    ".xml": (_BLOCK_HTML,),
+    ".md": (_BLOCK_HTML,),
 }
 
 # Multi-line string delimiters per suffix, used to shield string contents from
@@ -105,16 +115,31 @@ class Style:
     max_title: int | None = None
 
 
-def syntax_for(suffix: str) -> tuple[str, str] | None:
-    """Return the comment syntax for a file suffix, or `None` if unsupported.
+Syntax = tuple[str, str]
+Syntaxes = tuple[Syntax, ...]
+
+
+def syntax_for(suffix: str) -> Syntaxes | None:
+    """Return the comment syntaxes for a file suffix, or `None` if unsupported.
 
     Args:
         suffix: A file extension including the dot (for example `.py`).
 
     Returns:
-        The `(opener, closer)` comment tokens, or `None`.
+        A tuple of `(opener, closer)` comment tokens (one per recognised comment
+        form for the language), or `None`.
     """
     return _SYNTAX_BY_SUFFIX.get(suffix.lower())
+
+
+def _as_syntaxes(syntax: Syntax | Syntaxes) -> Syntaxes:
+    """Normalise a single `(opener, closer)` or a tuple of them into a tuple.
+
+    Accepts either form so callers (and tests) can pass one syntax directly.
+    """
+    if len(syntax) == 2 and isinstance(syntax[0], str):
+        return (syntax,)  # a lone (opener, closer)
+    return tuple(syntax)
 
 
 def _python_protected(text: str) -> set[int] | None:
@@ -302,6 +327,48 @@ def _box_title(content: str, syntax: tuple[str, str], style: Style) -> str | Non
     return title or None
 
 
+def _match_banner(
+    content: str, syntaxes: Syntaxes, style: Style
+) -> tuple[str, Syntax] | None:
+    """Return `(title, syntax)` for the first syntax that reads as a banner."""
+    for syntax in syntaxes:
+        title = _banner_title(content, syntax, style)
+        if title is not None:
+            return title, syntax
+    return None
+
+
+def _match_rule(content: str, syntaxes: Syntaxes, style: Style) -> Syntax | None:
+    """Return the first syntax under which `content` is a title-less rule."""
+    for syntax in syntaxes:
+        if _is_rule(content, syntax, style):
+            return syntax
+    return None
+
+
+def _match_box(
+    lines: list[str], i: int, syntaxes: Syntaxes, style: Style
+) -> tuple[str, str, Syntax] | None:
+    """Return `(indent, title, syntax)` if lines `i..i+2` form a three-line box.
+
+    A box is a rule, a title comment, and a rule, all written in the same
+    comment syntax at the same indent. The caller guarantees `i + 2` is in range.
+    """
+    c0, c1, c2 = (_content(lines[i + offset]) for offset in range(3))
+    for syntax in syntaxes:
+        if not (
+            _is_rule(c0, syntax, style)
+            and not _is_rule(c1, syntax, style)
+            and _is_rule(c2, syntax, style)
+        ):
+            continue
+        title = _box_title(c1, syntax, style)
+        indents = [_extract(c, syntax) for c in (c0, c1, c2)]
+        if title and all(indents) and len({e[0] for e in indents}) == 1:
+            return indents[0][0], title, syntax
+    return None
+
+
 def _format_banner(indent: str, syntax: tuple[str, str], title: str, style: Style) -> str:
     """Render a canonical single-line banner: fill padded around a centred title."""
     opener, closer = syntax
@@ -415,7 +482,7 @@ def _emit_unit(
 
 def process_text(
     text: str,
-    syntax: tuple[str, str],
+    syntax: Syntax | Syntaxes,
     style: Style,
     path: str = "<text>",
     protected: Collection[int] = (),
@@ -424,7 +491,8 @@ def process_text(
 
     Args:
         text: The full file contents.
-        syntax: The `(opener, closer)` comment tokens for the file.
+        syntax: A single `(opener, closer)` or a tuple of them; a banner is
+            detected under any and re-rendered in whichever one it was written.
         style: The active settings.
         path: Display path used in error messages.
         protected: 0-based line indices to leave untouched because they sit
@@ -434,6 +502,7 @@ def process_text(
         `(new_text, changed_count, errors)`. Passthrough lines keep their exact
         original newline; rewritten units use their first source line's newline.
     """
+    syntaxes = _as_syntaxes(syntax)
     lines = text.splitlines(keepends=True)
     n = len(lines)
     file_eol = "\r\n" if "\r\n" in text else "\n"
@@ -453,29 +522,24 @@ def process_text(
 
         # Three-line box: rule / title comment / rule, all the same indent.
         if i + 2 < n and not (protected & {i + 1, i + 2}):
-            c1, c2 = _content(lines[i + 1]), _content(lines[i + 2])
-            if (
-                _is_rule(c0, syntax, style)
-                and not _is_rule(c1, syntax, style)
-                and _is_rule(c2, syntax, style)
-            ):
-                title = _box_title(c1, syntax, style)
-                indents = [_extract(c, syntax) for c in (c0, c1, c2)]
-                if title and all(indents) and len({e[0] for e in indents}) == 1:
-                    chunk, did, error = _emit_unit(
-                        lines, i, i + 2, indents[0][0], title, syntax, style, path, file_eol
-                    )
-                    out.append(chunk)
-                    changed += did
-                    if error:
-                        errors.append(error)
-                    i += 3
-                    continue
+            box = _match_box(lines, i, syntaxes, style)
+            if box is not None:
+                indent, title, matched = box
+                chunk, did, error = _emit_unit(
+                    lines, i, i + 2, indent, title, matched, style, path, file_eol
+                )
+                out.append(chunk)
+                changed += did
+                if error:
+                    errors.append(error)
+                i += 3
+                continue
 
         # Stand-alone title-less rule.
-        if _is_rule(c0, syntax, style):
+        rule_syntax = _match_rule(c0, syntaxes, style)
+        if rule_syntax is not None:
             if style.dividers:
-                rule = _format_rule(_extract(c0, syntax)[0], syntax, style)
+                rule = _format_rule(_extract(c0, rule_syntax)[0], rule_syntax, style)
                 new_line = rule + (_eol(lines[i]) or file_eol) if _eol(lines[i]) else rule
                 out.append(new_line)
                 changed += new_line != lines[i]
@@ -485,10 +549,11 @@ def process_text(
             continue
 
         # Single-line banner.
-        title = _banner_title(c0, syntax, style)
-        if title:
+        match = _match_banner(c0, syntaxes, style)
+        if match is not None:
+            title, matched = match
             chunk, did, error = _emit_unit(
-                lines, i, i, _extract(c0, syntax)[0], title, syntax, style, path, file_eol
+                lines, i, i, _extract(c0, matched)[0], title, matched, style, path, file_eol
             )
             out.append(chunk)
             changed += did
