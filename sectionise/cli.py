@@ -183,18 +183,30 @@ def main(argv: list[str] | None = None) -> int:
         `0`.
     """
     args = _build_parser().parse_args(argv)
-    config = _load_config(args.config or _find_pyproject(Path.cwd()))
-    style = _resolve_style(args, config)
+    forced_config = _load_config(args.config) if args.config else None
 
     files, warnings = _collect_targets(args.filenames)
     for warning in warnings:
         print(f"sectionise: {warning}", file=sys.stderr)
+
+    # Resolve settings from each file's own nearest pyproject.toml (unless one is
+    # forced with --config), so a monorepo's per-package overrides are honoured.
+    # Cache by the resolved config path so each pyproject is read once.
+    style_cache: dict[Path | None, core.Style] = {}
+
+    def resolve_for(path: Path) -> core.Style:
+        key = args.config if forced_config is not None else _find_pyproject(path.parent)
+        if key not in style_cache:
+            config = forced_config if forced_config is not None else _load_config(key)
+            style_cache[key] = _resolve_style(args, config)
+        return style_cache[key]
 
     changed_files: list[str] = []
     all_errors: list[str] = []
     for path in files:
         name = str(path)
         syntax = core.syntax_for(path.suffix)
+        style = resolve_for(path)
         try:
             text = path.read_text(encoding="utf-8")
         except UnicodeDecodeError:
