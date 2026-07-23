@@ -41,16 +41,22 @@ _SKIP_DIRS = frozenset(
 )
 
 
-def _collect_targets(names: list[str]) -> tuple[list[Path], list[str]]:
-    """Expand input names into supported files, plus warnings for skipped inputs.
+def _collect_targets(
+    names: list[str], custom_suffixes_of
+) -> tuple[list[Path], list[str]]:
+    """Expand input names into candidate files, plus warnings for missing ones.
 
     Directories are walked recursively (skipping vendored and generated trees),
-    keeping only files of a supported type. Explicitly named files of an
-    unsupported type, and names that do not exist, produce a warning so the user
-    is not left thinking an unsupported path was processed.
+    keeping files whose suffix is a supported built-in or a configured custom
+    language. Explicitly named files are always kept; whether they are actually
+    processed (by suffix, custom language, or shebang) is decided per file, so
+    the caller warns about a truly unsupported one. Names that do not exist warn
+    here.
 
     Args:
         names: The raw filename arguments.
+        custom_suffixes_of: Callable mapping a path to the set of custom-language
+            suffixes configured for it.
 
     Returns:
         `(files, warnings)`.
@@ -64,13 +70,11 @@ def _collect_targets(names: list[str]) -> tuple[list[Path], list[str]]:
                 dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
                 for filename in sorted(filenames):
                     child = Path(dirpath) / filename
-                    if core.syntax_for(child.suffix) is not None:
+                    supported = core.syntax_for(child.suffix) is not None
+                    if supported or child.suffix.lower() in custom_suffixes_of(child):
                         files.append(child)
         elif path.is_file():
-            if core.syntax_for(path.suffix) is None:
-                warnings.append(f"skipped {name}: unsupported file type")
-            else:
-                files.append(path)
+            files.append(path)
         else:
             warnings.append(f"skipped {name}: not found")
     return files, warnings
@@ -215,6 +219,85 @@ def _language_config(config: dict, language: str | None) -> dict:
     return section if isinstance(section, dict) else {}
 
 
+def _parse_comments(name: str, spec) -> core.Syntaxes:
+    """Turn a custom language's `comments` list into comment syntaxes.
+
+    Each entry is either a string (a line-comment opener like `#`) or a two-item
+    list `[opener, closer]` for a block comment.
+
+    Raises:
+        ValueError: If an entry is not a string or a valid `[opener, closer]`.
+    """
+    syntaxes: list[core.Syntax] = []
+    for item in spec:
+        if isinstance(item, str) and item:
+            syntaxes.append((item, ""))
+        elif (
+            isinstance(item, list)
+            and len(item) == 2
+            and all(isinstance(part, str) and part for part in item)
+        ):
+            syntaxes.append((item[0], item[1]))
+        else:
+            raise ValueError(
+                f"custom language '{name}': each comment must be a string or "
+                f"an [opener, closer] pair, got {item!r}"
+            )
+    return tuple(syntaxes)
+
+
+def _custom_languages(config: dict) -> dict[str, dict]:
+    """Return custom languages defined in the config.
+
+    A `[tool.sectionise.language.<name>]` table that carries `suffixes` and
+    `comments` defines a new language; tables with only settings tune a built-in
+    one and are ignored here.
+
+    Returns:
+        `{name: {"suffixes": tuple, "syntaxes": Syntaxes}}`.
+
+    Raises:
+        ValueError: If a definition is malformed.
+    """
+    table = config.get("language", {})
+    if not isinstance(table, dict):
+        return {}
+    languages: dict[str, dict] = {}
+    for name, settings in table.items():
+        if not isinstance(settings, dict) or not ("suffixes" in settings or "comments" in settings):
+            continue
+        suffixes, comments = settings.get("suffixes"), settings.get("comments")
+        if not (isinstance(suffixes, list) and suffixes and isinstance(comments, list) and comments):
+            raise ValueError(
+                f"custom language '{name}' needs a non-empty 'suffixes' list and "
+                f"'comments' list"
+            )
+        normalised = []
+        for suffix in suffixes:
+            if not (isinstance(suffix, str) and suffix.startswith(".")):
+                raise ValueError(
+                    f"custom language '{name}': suffix {suffix!r} must be a string like '.foo'"
+                )
+            normalised.append(suffix.lower())
+        languages[name] = {"suffixes": tuple(normalised), "syntaxes": _parse_comments(name, comments)}
+    return languages
+
+
+def _resolve_language(config: dict, suffix: str, text: str) -> tuple[str | None, core.Syntaxes | None]:
+    """Return `(language, syntaxes)` for a file: built-in, then custom, then shebang."""
+    suffix = suffix.lower()
+    builtin = core.syntax_for(suffix)
+    if builtin is not None:
+        return core.language_for(suffix), builtin
+    for name, spec in _custom_languages(config).items():
+        if suffix in spec["suffixes"]:
+            return name, spec["syntaxes"]
+    shebang = core.shebang_language(text)
+    if shebang is not None:
+        return shebang, core.syntaxes_for_language(shebang)
+    return None, None
+
+
 def _resolve_encoding(args: argparse.Namespace, config: dict) -> str:
     """Merge the `--encoding` flag over `pyproject.toml` over the utf-8 default.
 
@@ -299,35 +382,56 @@ def main(argv: list[str] | None = None) -> int:
     if args.filenames == ["-"]:
         return _run_stdin(args, forced_config)
 
-    files, warnings = _collect_targets(args.filenames)
-    for warning in warnings:
-        print(f"sectionise: {warning}", file=sys.stderr)
-
-    # Resolve settings from each file's own nearest pyproject.toml (unless one is
+    # Settings come from each file's own nearest pyproject.toml (unless one is
     # forced with --config), so a monorepo's per-package overrides are honoured.
-    # Cache by the resolved config path so each pyproject is read once.
-    # Cache by (config source, language) since settings vary on both.
-    settings_cache: dict[tuple, tuple[core.Style, str]] = {}
+    # Encoding is language-independent and needed before the read, so it is
+    # resolved and cached separately from the language-dependent Style.
+    config_cache: dict[Path | None, dict] = {}
+    encoding_cache: dict[Path | None, str] = {}
+    style_cache: dict[tuple, core.Style] = {}
 
-    def resolve_for(path: Path) -> tuple[core.Style, str]:
-        config_key = args.config if forced_config is not None else _find_pyproject(path.parent)
-        language = core.language_for(path.suffix)
+    def config_key_for(path: Path) -> Path | None:
+        return args.config if forced_config is not None else _find_pyproject(path.parent)
+
+    def config_for(config_key: Path | None) -> dict:
+        if config_key not in config_cache:
+            config_cache[config_key] = (
+                forced_config if forced_config is not None else _load_config(config_key)
+            )
+        return config_cache[config_key]
+
+    def encoding_for(config_key: Path | None) -> str:
+        if config_key not in encoding_cache:
+            encoding_cache[config_key] = _resolve_encoding(args, config_for(config_key))
+        return encoding_cache[config_key]
+
+    def style_for(config_key: Path | None, language: str | None) -> core.Style:
         cache_key = (config_key, language)
-        if cache_key not in settings_cache:
-            config = forced_config if forced_config is not None else _load_config(config_key)
-            style = _resolve_style(
+        if cache_key not in style_cache:
+            config = config_for(config_key)
+            style_cache[cache_key] = _resolve_style(
                 args, config, _language_config(config, language), core.language_defaults(language)
             )
-            settings_cache[cache_key] = (style, _resolve_encoding(args, config))
-        return settings_cache[cache_key]
+        return style_cache[cache_key]
+
+    def custom_suffixes_of(path: Path) -> set[str]:
+        try:
+            langs = _custom_languages(config_for(config_key_for(path)))
+        except ValueError:
+            return set()  # a malformed definition is reported per file in the loop
+        return {suffix for spec in langs.values() for suffix in spec["suffixes"]}
+
+    files, warnings = _collect_targets(args.filenames, custom_suffixes_of)
+    for warning in warnings:
+        print(f"sectionise: {warning}", file=sys.stderr)
 
     changed_files: list[str] = []
     all_errors: list[str] = []
     for path in files:
         name = str(path)
-        syntax = core.syntax_for(path.suffix)
+        config_key = config_key_for(path)
         try:
-            style, encoding = resolve_for(path)
+            encoding = encoding_for(config_key)
         except ValueError as exc:
             all_errors.append(f"invalid configuration for {name}: {exc}")
             continue
@@ -344,7 +448,21 @@ def main(argv: list[str] | None = None) -> int:
             continue
         bom = raw.startswith(_BOM)
         text = raw[1:] if bom else raw
-        protected = core.protected_lines(text, path.suffix)
+        try:
+            language, syntax = _resolve_language(config_for(config_key), path.suffix, text)
+        except ValueError as exc:
+            all_errors.append(f"invalid configuration for {name}: {exc}")
+            continue
+        if syntax is None:
+            print(f"sectionise: skipped {name}: unsupported file type", file=sys.stderr)
+            continue
+        try:
+            style = style_for(config_key, language)
+        except ValueError as exc:
+            all_errors.append(f"invalid configuration for {name}: {exc}")
+            continue
+        protect_suffix = path.suffix if core.syntax_for(path.suffix) else core.primary_suffix(language)
+        protected = core.protected_lines(text, protect_suffix)
         new_text, changed, errors = core.process_text(text, syntax, style, name, protected)
         all_errors.extend(errors)
         if changed:

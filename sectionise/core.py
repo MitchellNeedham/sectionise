@@ -93,7 +93,24 @@ _LANG_BY_SUFFIX = {sfx: name for name, sfxs, _, _, _ in _LANGUAGES for sfx in sf
 _STRING_DELIMS_BY_SUFFIX = {sfx: d for _, sfxs, _, d, _ in _LANGUAGES for sfx in sfxs if d}
 _DEFAULTS_BY_LANGUAGE = {name: dict(defaults) for name, _, _, _, defaults in _LANGUAGES}
 _SUFFIXES_BY_LANGUAGE = {name: sfxs for name, sfxs, _, _, _ in _LANGUAGES}
+_SYNTAXES_BY_LANGUAGE = {name: syn for name, _, syn, _, _ in _LANGUAGES}
 _PYTHON_SUFFIXES = frozenset(_SUFFIXES_BY_LANGUAGE["python"])
+
+# Interpreter basename (from a shebang line) to language, so extensionless
+# scripts can still be recognised. Version suffixes like `python3.12` are matched
+# by prefix.
+_SHEBANG_LANGUAGES = {
+    "python": "python",
+    "bash": "shell",
+    "sh": "shell",
+    "zsh": "shell",
+    "dash": "shell",
+    "ruby": "ruby",
+    "perl": "perl",
+    "node": "javascript",
+    "lua": "lua",
+    "rscript": "r",
+}
 
 
 @dataclass(frozen=True)
@@ -183,17 +200,60 @@ def language_for(suffix: str) -> str | None:
     return _LANG_BY_SUFFIX.get(suffix.lower())
 
 
-def language_defaults(name: str) -> dict:
+def language_defaults(name: str | None) -> dict:
     """Return the built-in default settings for a language name.
 
     Args:
         name: A canonical language name, as returned by `language_for`.
 
     Returns:
-        A fresh dict of the language's opinionated defaults (empty if unknown).
-        These sit below any user or flag settings in precedence.
+        A fresh dict of the language's opinionated defaults (empty if unknown or
+        `None`). These sit below any user or flag settings in precedence.
     """
     return dict(_DEFAULTS_BY_LANGUAGE.get(name, {}))
+
+
+def syntaxes_for_language(name: str | None) -> Syntaxes | None:
+    """Return the comment syntaxes for a language name, or `None` if unknown."""
+    return _SYNTAXES_BY_LANGUAGE.get(name)
+
+
+def primary_suffix(name: str | None) -> str:
+    """Return a representative file suffix for a language, or empty if unknown.
+
+    Used to drive string-literal protection for a file identified by shebang
+    rather than extension (for example an extensionless Python script).
+    """
+    suffixes = _SUFFIXES_BY_LANGUAGE.get(name)
+    return suffixes[0] if suffixes else ""
+
+
+def shebang_language(text: str) -> str | None:
+    """Return the language named by a leading `#!` shebang line, else `None`.
+
+    The interpreter basename is matched by prefix so `python3`, `python3.12`,
+    and a bare `python` all resolve to Python.
+
+    Args:
+        text: The file contents (only the first line is inspected).
+
+    Returns:
+        A canonical language name, or `None`.
+    """
+    if not text.startswith("#!"):
+        return None
+    first_line = text.splitlines()[0] if text else ""
+    tokens = first_line[2:].split()
+    if not tokens:
+        return None
+    # `#!/usr/bin/env python3` -> take the arg after env; else the interpreter.
+    interpreter = tokens[0].rsplit("/", 1)[-1]
+    if interpreter == "env" and len(tokens) > 1:
+        interpreter = tokens[1].rsplit("/", 1)[-1]
+    for prefix, language in _SHEBANG_LANGUAGES.items():
+        if interpreter.startswith(prefix):
+            return language
+    return None
 
 
 def _as_syntaxes(syntax: Syntax | Syntaxes) -> Syntaxes:
