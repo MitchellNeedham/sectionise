@@ -7,10 +7,69 @@ pre-commit formatter convention.
 """
 
 import argparse
+import os
+import sys
 import tomllib
 from pathlib import Path
 
 from . import core
+
+# Directories skipped when a directory argument is walked, so vendored and
+# generated trees are never rewritten by accident.
+_SKIP_DIRS = frozenset(
+    {
+        ".git",
+        ".hg",
+        ".svn",
+        "node_modules",
+        ".venv",
+        "venv",
+        "__pycache__",
+        ".mypy_cache",
+        ".ruff_cache",
+        ".pytest_cache",
+        ".tox",
+        ".idea",
+        ".eggs",
+        "dist",
+        "build",
+    }
+)
+
+
+def _collect_targets(names: list[str]) -> tuple[list[Path], list[str]]:
+    """Expand input names into supported files, plus warnings for skipped inputs.
+
+    Directories are walked recursively (skipping vendored and generated trees),
+    keeping only files of a supported type. Explicitly named files of an
+    unsupported type, and names that do not exist, produce a warning so the user
+    is not left thinking an unsupported path was processed.
+
+    Args:
+        names: The raw filename arguments.
+
+    Returns:
+        `(files, warnings)`.
+    """
+    files: list[Path] = []
+    warnings: list[str] = []
+    for name in names:
+        path = Path(name)
+        if path.is_dir():
+            for dirpath, dirnames, filenames in os.walk(path):
+                dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
+                for filename in sorted(filenames):
+                    child = Path(dirpath) / filename
+                    if core.syntax_for(child.suffix) is not None:
+                        files.append(child)
+        elif path.is_file():
+            if core.syntax_for(path.suffix) is None:
+                warnings.append(f"skipped {name}: unsupported file type")
+            else:
+                files.append(path)
+        else:
+            warnings.append(f"skipped {name}: not found")
+    return files, warnings
 
 
 def _find_pyproject(start: Path) -> Path | None:
@@ -127,16 +186,22 @@ def main(argv: list[str] | None = None) -> int:
     config = _load_config(args.config or _find_pyproject(Path.cwd()))
     style = _resolve_style(args, config)
 
+    files, warnings = _collect_targets(args.filenames)
+    for warning in warnings:
+        print(f"sectionise: {warning}", file=sys.stderr)
+
     changed_files: list[str] = []
     all_errors: list[str] = []
-    for name in args.filenames:
-        path = Path(name)
+    for path in files:
+        name = str(path)
         syntax = core.syntax_for(path.suffix)
-        if syntax is None:
-            continue
         try:
             text = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
+        except UnicodeDecodeError:
+            print(f"sectionise: skipped {name}: not valid UTF-8 text", file=sys.stderr)
+            continue
+        except OSError as exc:
+            print(f"sectionise: skipped {name}: {exc.strerror or exc}", file=sys.stderr)
             continue
         protected = core.protected_lines(text, path.suffix)
         new_text, changed, errors = core.process_text(text, syntax, style, name, protected)
