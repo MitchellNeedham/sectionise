@@ -167,13 +167,31 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _resolve_style(args: argparse.Namespace, config: dict) -> core.Style:
-    """Merge flags over `pyproject.toml` over defaults into a `Style`."""
+def _resolve_style(
+    args: argparse.Namespace,
+    global_config: dict,
+    lang_config: dict,
+    lang_defaults: dict,
+) -> core.Style:
+    """Merge settings into a `Style` by precedence, highest first.
+
+    Order: CLI flag, per-language `pyproject.toml` table, global `pyproject.toml`
+    table, built-in per-language default, built-in global default.
+
+    Args:
+        args: Parsed arguments (unset overridable flags are `None`).
+        lang_config: The `[tool.sectionise.language.<name>]` table for the file.
+        global_config: The `[tool.sectionise]` table.
+        lang_defaults: The language's opinionated built-in defaults.
+    """
 
     def pick(flag_value, key, default):
         if flag_value is not None:
             return flag_value
-        return config.get(key, default)
+        for layer in (lang_config, global_config, lang_defaults):
+            if key in layer:
+                return layer[key]
+        return default
 
     return core.Style(
         width=pick(args.width, "width", core.DEFAULT_WIDTH),
@@ -186,6 +204,15 @@ def _resolve_style(args: argparse.Namespace, config: dict) -> core.Style:
         style=pick(args.style, "style", core.DEFAULT_STYLE),
         max_title=pick(args.max_title, "max_title", None),
     )
+
+
+def _language_config(config: dict, language: str | None) -> dict:
+    """Return the `[tool.sectionise.language.<name>]` sub-table for a language."""
+    table = config.get("language", {})
+    if not isinstance(table, dict) or language is None:
+        return {}
+    section = table.get(language, {})
+    return section if isinstance(section, dict) else {}
 
 
 def _resolve_encoding(args: argparse.Namespace, config: dict) -> str:
@@ -227,8 +254,11 @@ def _run_stdin(args: argparse.Namespace, forced_config: dict | None) -> int:
         print(f"sectionise: unsupported stdin filename {stdin_name!r}", file=sys.stderr)
         return 2
     config = forced_config if forced_config is not None else _load_config(_find_pyproject(Path.cwd()))
+    language = core.language_for(suffix)
     try:
-        style = _resolve_style(args, config)
+        style = _resolve_style(
+            args, config, _language_config(config, language), core.language_defaults(language)
+        )
         _resolve_encoding(args, config)
     except ValueError as exc:
         print(f"sectionise: invalid configuration: {exc}", file=sys.stderr)
@@ -276,14 +306,20 @@ def main(argv: list[str] | None = None) -> int:
     # Resolve settings from each file's own nearest pyproject.toml (unless one is
     # forced with --config), so a monorepo's per-package overrides are honoured.
     # Cache by the resolved config path so each pyproject is read once.
-    settings_cache: dict[Path | None, tuple[core.Style, str]] = {}
+    # Cache by (config source, language) since settings vary on both.
+    settings_cache: dict[tuple, tuple[core.Style, str]] = {}
 
     def resolve_for(path: Path) -> tuple[core.Style, str]:
-        key = args.config if forced_config is not None else _find_pyproject(path.parent)
-        if key not in settings_cache:
-            config = forced_config if forced_config is not None else _load_config(key)
-            settings_cache[key] = (_resolve_style(args, config), _resolve_encoding(args, config))
-        return settings_cache[key]
+        config_key = args.config if forced_config is not None else _find_pyproject(path.parent)
+        language = core.language_for(path.suffix)
+        cache_key = (config_key, language)
+        if cache_key not in settings_cache:
+            config = forced_config if forced_config is not None else _load_config(config_key)
+            style = _resolve_style(
+                args, config, _language_config(config, language), core.language_defaults(language)
+            )
+            settings_cache[cache_key] = (style, _resolve_encoding(args, config))
+        return settings_cache[cache_key]
 
     changed_files: list[str] = []
     all_errors: list[str] = []

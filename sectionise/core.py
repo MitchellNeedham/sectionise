@@ -36,6 +36,7 @@ DEFAULT_STYLE = "single"
 # is detected under any of them and re-rendered in whichever one it was written.
 _LINE_HASH = ("#", "")
 _LINE_SLASH = ("//", "")
+_LINE_DASH = ("--", "")
 _BLOCK_HTML = ("<!--", "-->")
 _BLOCK_C = ("/*", "*/")
 
@@ -44,49 +45,55 @@ _BLOCK_C = ("/*", "*/")
 _CFAMILY = (_LINE_SLASH, _BLOCK_C)
 _CSS = (_BLOCK_C,)
 _SCSS = (_LINE_SLASH, _BLOCK_C)
+_HCL = (_LINE_HASH, _LINE_SLASH, _BLOCK_C)
+_SQL = (_LINE_DASH, _BLOCK_C)
 
-_SYNTAX_BY_SUFFIX = {
-    ".py": (_LINE_HASH,),
-    ".pyi": (_LINE_HASH,),
-    ".sh": (_LINE_HASH,),
-    ".bash": (_LINE_HASH,),
-    ".toml": (_LINE_HASH,),
-    ".yaml": (_LINE_HASH,),
-    ".yml": (_LINE_HASH,),
-    ".cfg": (_LINE_HASH,),
-    ".ini": (_LINE_HASH,),
-    ".js": _CFAMILY,
-    ".jsx": _CFAMILY,
-    ".ts": _CFAMILY,
-    ".tsx": _CFAMILY,
-    ".c": _CFAMILY,
-    ".h": _CFAMILY,
-    ".cpp": _CFAMILY,
-    ".cc": _CFAMILY,
-    ".java": _CFAMILY,
-    ".css": _CSS,
-    ".scss": _SCSS,
-    ".less": _SCSS,
-    ".go": _CFAMILY,
-    ".rs": _CFAMILY,
-    ".html": (_BLOCK_HTML,),
-    ".htm": (_BLOCK_HTML,),
-    ".xml": (_BLOCK_HTML,),
-    ".md": (_BLOCK_HTML,),
-}
-
-# Multi-line string delimiters per suffix, used to shield string contents from
-# banner rewriting. A line that only looks like a banner because it sits inside
-# a here-doc, template literal, or triple-quoted string must be left untouched.
 _BACKTICK = ("`", "`")
 _PY_TRIPLE = (('"""', '"""'), ("'''", "'''"))
-_MULTILINE_STRING_DELIMS = {
-    ".js": (_BACKTICK,),
-    ".jsx": (_BACKTICK,),
-    ".ts": (_BACKTICK,),
-    ".tsx": (_BACKTICK,),
-    ".go": (_BACKTICK,),
-}
+
+# The single source of truth for language support: canonical name, file
+# suffixes, comment syntaxes, multi-line string delimiters (to shield string
+# contents from rewriting), and opinionated default settings that reflect the
+# language's dominant formatter or style guide. Everything below is derived from
+# this table. Widths: Black 88 (Python), Prettier 80 (web), rustfmt/Google 100,
+# Microsoft/SwiftLint/RuboCop 120.
+_LANGUAGES: tuple[tuple[str, tuple[str, ...], "Syntaxes", tuple, dict], ...] = (
+    ("python", (".py", ".pyi"), (_LINE_HASH,), _PY_TRIPLE, {"width": 88}),
+    ("shell", (".sh", ".bash"), (_LINE_HASH,), (), {"width": 80}),
+    ("toml", (".toml",), (_LINE_HASH,), (), {"width": 80}),
+    ("yaml", (".yaml", ".yml"), (_LINE_HASH,), (), {"width": 80}),
+    ("ini", (".ini", ".cfg"), (_LINE_HASH,), (), {"width": 80}),
+    ("ruby", (".rb",), (_LINE_HASH,), (), {"width": 120}),
+    ("perl", (".pl", ".pm"), (_LINE_HASH,), (), {"width": 80}),
+    ("r", (".r",), (_LINE_HASH,), (), {"width": 80}),
+    ("javascript", (".js", ".jsx", ".mjs", ".cjs"), _CFAMILY, (_BACKTICK,), {"width": 80}),
+    ("typescript", (".ts", ".tsx"), _CFAMILY, (_BACKTICK,), {"width": 80}),
+    ("c", (".c", ".h"), _CFAMILY, (), {"width": 80}),
+    ("cpp", (".cpp", ".cc", ".cxx", ".hpp", ".hh"), _CFAMILY, (), {"width": 80}),
+    ("csharp", (".cs",), _CFAMILY, (), {"width": 120}),
+    ("java", (".java",), _CFAMILY, (), {"width": 100}),
+    ("kotlin", (".kt", ".kts"), _CFAMILY, (), {"width": 100}),
+    ("swift", (".swift",), _CFAMILY, (), {"width": 120}),
+    ("scala", (".scala",), _CFAMILY, (), {"width": 80}),
+    ("dart", (".dart",), _CFAMILY, (), {"width": 80}),
+    ("go", (".go",), _CFAMILY, (_BACKTICK,), {"width": 100}),
+    ("rust", (".rs",), _CFAMILY, (), {"width": 100}),
+    ("css", (".css",), _CSS, (), {"width": 80}),
+    ("scss", (".scss", ".less"), _SCSS, (), {"width": 80}),
+    ("sql", (".sql",), _SQL, (), {"width": 88}),
+    ("lua", (".lua",), (_LINE_DASH,), (), {"width": 80}),
+    ("terraform", (".tf",), _HCL, (), {"width": 80}),
+    ("html", (".html", ".htm"), (_BLOCK_HTML,), (), {"width": 80}),
+    ("xml", (".xml",), (_BLOCK_HTML,), (), {"width": 80}),
+    ("markdown", (".md",), (_BLOCK_HTML,), (), {"width": 80}),
+)
+
+_SYNTAX_BY_SUFFIX = {sfx: syn for _, sfxs, syn, _, _ in _LANGUAGES for sfx in sfxs}
+_LANG_BY_SUFFIX = {sfx: name for name, sfxs, _, _, _ in _LANGUAGES for sfx in sfxs}
+_STRING_DELIMS_BY_SUFFIX = {sfx: d for _, sfxs, _, d, _ in _LANGUAGES for sfx in sfxs if d}
+_DEFAULTS_BY_LANGUAGE = {name: dict(defaults) for name, _, _, _, defaults in _LANGUAGES}
+_SUFFIXES_BY_LANGUAGE = {name: sfxs for name, sfxs, _, _, _ in _LANGUAGES}
+_PYTHON_SUFFIXES = frozenset(_SUFFIXES_BY_LANGUAGE["python"])
 
 
 @dataclass(frozen=True)
@@ -162,6 +169,31 @@ def syntax_for(suffix: str) -> Syntaxes | None:
         form for the language), or `None`.
     """
     return _SYNTAX_BY_SUFFIX.get(suffix.lower())
+
+
+def language_for(suffix: str) -> str | None:
+    """Return the canonical language name for a file suffix, or `None`.
+
+    Args:
+        suffix: A file extension including the dot (for example `.py`).
+
+    Returns:
+        The language name (for example `python`), or `None` if unsupported.
+    """
+    return _LANG_BY_SUFFIX.get(suffix.lower())
+
+
+def language_defaults(name: str) -> dict:
+    """Return the built-in default settings for a language name.
+
+    Args:
+        name: A canonical language name, as returned by `language_for`.
+
+    Returns:
+        A fresh dict of the language's opinionated defaults (empty if unknown).
+        These sit below any user or flag settings in precedence.
+    """
+    return dict(_DEFAULTS_BY_LANGUAGE.get(name, {}))
 
 
 def _as_syntaxes(syntax: Syntax | Syntaxes) -> Syntaxes:
@@ -252,12 +284,12 @@ def protected_lines(text: str, suffix: str) -> frozenset[int]:
         The set of protected line indices.
     """
     suffix = suffix.lower()
-    if suffix in (".py", ".pyi"):
+    if suffix in _PYTHON_SUFFIXES:
         result = _python_protected(text)
         if result is not None:
             return frozenset(result)
         return frozenset(_scan_protected(text, _PY_TRIPLE))
-    delims = _MULTILINE_STRING_DELIMS.get(suffix)
+    delims = _STRING_DELIMS_BY_SUFFIX.get(suffix)
     if delims:
         return frozenset(_scan_protected(text, delims))
     return frozenset()
