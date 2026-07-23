@@ -141,7 +141,9 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Name used to pick the comment syntax when reading stdin (default a .py name).",
     )
     parser.add_argument("--width", type=int, default=None, help="Target line length.")
-    parser.add_argument("--fill", default=None, help="Output fill character.")
+    parser.add_argument(
+        "--fill", default=None, help="Output fill, one or more characters."
+    )
     parser.add_argument(
         "--detect-chars", default=None, help="Characters recognised as banner fill."
     )
@@ -162,6 +164,24 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=("centre", "center", "left"),
         default=None,
         help="Single-line title placement (default centre).",
+    )
+    parser.add_argument(
+        "--fill-mode",
+        choices=("width", "fixed"),
+        default=None,
+        help="Single-line fill: pad to width, or a fixed count per run.",
+    )
+    parser.add_argument(
+        "--fill-count",
+        type=int,
+        default=None,
+        help="Fill characters per run when fill-mode is fixed (default 3).",
+    )
+    parser.add_argument(
+        "--bookend",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Close a single-line banner with a mirror of the comment opener.",
     )
     parser.add_argument(
         "--max-title", type=int, default=None, help="Hard cap on title length."
@@ -231,6 +251,9 @@ def _resolve_style(
         boxes=pick(args.boxes, "boxes", True),
         style=pick(args.style, "style", core.DEFAULT_STYLE),
         align=pick(args.align, "align", core.DEFAULT_ALIGN),
+        fill_mode=pick(args.fill_mode, "fill_mode", core.DEFAULT_FILL_MODE),
+        fill_count=pick(args.fill_count, "fill_count", core.DEFAULT_FILL_COUNT),
+        bookend=pick(args.bookend, "bookend", False),
         tab_width=pick(args.tab_width, "tab_width", core.DEFAULT_TAB_WIDTH),
         max_title=pick(args.max_title, "max_title", None),
     )

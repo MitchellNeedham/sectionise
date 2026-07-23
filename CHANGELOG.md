@@ -4,6 +4,27 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `fill_mode` (`width` or `fixed`) and `fill_count`, so single-line banners can
+  carry a set number of fill characters per run (`# ----- Title -----`) instead
+  of always padding to the target width. `align` still chooses the sides, and
+  box style and dividers are unaffected.
+- `bookend`, closing a single-line banner with a mirror of the comment opener
+  (`# --- Title --- #`, `// --- Title --- //`). A trailing opener is recognised
+  on input whether or not `bookend` is set.
+- Multi-character `fill` (for example `-=`), tiled and truncated to the target
+  width. Each of its characters is added to `detect_chars` so the output is
+  recognised on the next run.
+
+### Fixed
+
+- Fill characters joined to the title text (`_function_name`, `#Nice`, `name_`)
+  are no longer stripped. Only stand-alone, whitespace-separated fill runs are
+  treated as decoration.
+
 ## [0.2.0] - 2026-07-23
 
 ### Added

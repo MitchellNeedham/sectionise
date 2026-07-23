@@ -20,7 +20,7 @@ C = core.syntax_for(".c")  # both // and /* */
 
 Case = namedtuple("Case", "name style syntax src want")
 
-# ------------------------------ Transform table ------------------------------
+# ---------------------------------- Transform table -----------------------------------
 CASES = [
     Case(
         "centre from both sides",
@@ -65,6 +65,90 @@ CASES = [
         "# Setup --------------------------------\n",
     ),
     Case(
+        "fixed fill, centre, matching run both sides",
+        dict(fill_mode="fixed"),
+        HASH,
+        "# ------- Setup -------\n",
+        "# --- Setup ---\n",
+    ),
+    Case(
+        "fixed fill honours fill_count",
+        dict(fill_mode="fixed", fill_count=5),
+        HASH,
+        "# --- HEADER ---\n",
+        "# ----- HEADER -----\n",
+    ),
+    Case(
+        "fixed fill, left align, trailing run only",
+        dict(fill_mode="fixed", align="left"),
+        HASH,
+        "# ------- Setup -------\n",
+        "# Setup ---\n",
+    ),
+    Case(
+        "fixed fill has no width bound so a long title fits",
+        dict(fill_mode="fixed", width=20),
+        HASH,
+        "# ===== a very long section title indeed =====\n",
+        "# --- a very long section title indeed ---\n",
+    ),
+    Case(
+        "box ignores fill_mode and still spans the width",
+        dict(fill_mode="fixed", style="box", width=40),
+        HASH,
+        "# --- Setup ---\n",
+        "# --------------------------------------\n# Setup\n# --------------------------------------\n",
+    ),
+    Case(
+        "bookend closes with a mirror of the opener",
+        dict(width=40, bookend=True),
+        HASH,
+        "# ------- Setup -------\n",
+        "# -------------- Setup --------------- #\n",
+    ),
+    Case(
+        "bookend, fixed fill",
+        dict(fill_mode="fixed", fill_count=4, bookend=True),
+        HASH,
+        "# --- NICE ---\n",
+        "# ---- NICE ---- #\n",
+    ),
+    Case(
+        "bookend mirrors a slash opener with hash fill",
+        dict(fill_mode="fixed", fill_count=5, fill="#", bookend=True),
+        SLASH,
+        "// --- HEADER ---\n",
+        "// ##### HEADER ##### //\n",
+    ),
+    Case(
+        "bookend, left align",
+        dict(width=40, align="left", bookend=True),
+        HASH,
+        "# ------- Setup -------\n",
+        "# Setup ------------------------------ #\n",
+    ),
+    Case(
+        "trailing opener marker recognised even with bookend off",
+        dict(width=40),
+        SLASH,
+        "// ##### HEADER ##### //\n",
+        "// -------------- HEADER ---------------\n",
+    ),
+    Case(
+        "multi-character fill is tiled to the width",
+        dict(width=40, fill="=-"),
+        HASH,
+        "# ------- Setup -------\n",
+        "# =-=-=-=-=-=-=-= Setup =-=-=-=-=-=-=-=-\n",
+    ),
+    Case(
+        "multi-character fill, fixed count",
+        dict(fill_mode="fixed", fill_count=6, fill="=-"),
+        HASH,
+        "# --- Setup ---\n",
+        "# =-=-=- Setup =-=-=-\n",
+    ),
+    Case(
         "box collapses to single",
         dict(width=40, style="single"),
         HASH,
@@ -105,6 +189,27 @@ CASES = [
         HASH,
         "# ---------------- model config ---------------- #\n",
         "# ---------------------- model config ----------------------\n",
+    ),
+    Case(
+        "leading fill char attached to title is kept",
+        dict(width=40),
+        HASH,
+        "# ------- _function_name -------\n",
+        "# ----------- _function_name -----------\n",
+    ),
+    Case(
+        "hash prefix in title is kept",
+        dict(width=40),
+        HASH,
+        "# --- #Nice ---\n",
+        "# --------------- #Nice ----------------\n",
+    ),
+    Case(
+        "trailing fill char attached to title is kept",
+        dict(width=40),
+        HASH,
+        "# --- name_ ---\n",
+        "# --------------- name_ ----------------\n",
     ),
     Case(
         "title-less divider left alone by default",
@@ -228,7 +333,7 @@ def test_changed_flag_matches_whether_output_differs(case):
     assert bool(changed) == (case.want != case.src)
 
 
-# ------------------------------ Ignored inputs -------------------------------
+# ----------------------------------- Ignored inputs -----------------------------------
 @pytest.mark.parametrize(
     "src",
     [
@@ -245,7 +350,7 @@ def test_left_alone(src):
     assert errors == []
 
 
-# ---------------------------- String protection -----------------------------
+# --------------------------------- String protection ----------------------------------
 def test_banner_inside_python_string_is_left_untouched():
     text = 'x = """\n# ==== not a comment ====\nhello\n"""\n'
     protected = core.protected_lines(text, ".py")
@@ -282,7 +387,7 @@ def test_backtick_template_literal_protects_banner():
     assert changed == 0
 
 
-# ------------------------------- Box handling --------------------------------
+# ------------------------------------ Box handling ------------------------------------
 def test_boxes_disabled_leaves_box_untouched():
     text = "# ======\n# Setup\n# ======\n"
     out, changed, _ = core.process_text(text, HASH, Style(boxes=False, width=40))
@@ -320,7 +425,7 @@ def test_box_rule_never_shorter_than_min_run(min_run):
     assert out.splitlines()[0] == "# " + "-" * min_run
 
 
-# ---------------------------- Over-long titles -------------------------------
+# ---------------------------------- Over-long titles ----------------------------------
 def test_too_long_single_title_errors_and_leaves_unchanged():
     text = "# --- a very long section title indeed ---\n"
     out, changed, errors = core.process_text(text, HASH, Style(width=20))
@@ -335,7 +440,7 @@ def test_box_style_accommodates_longer_titles():
     assert errors == []
 
 
-# ------------------------------- Alignment -----------------------------------
+# ------------------------------------- Alignment --------------------------------------
 def test_left_align_is_idempotent():
     style = Style(width=40, align="left")
     once = core._format_banner("", HASH, "Section name", style)
@@ -356,18 +461,22 @@ def test_tab_indent_counts_as_configured_columns():
     assert len(line.expandtabs(8)) == 40
 
 
-# ------------------------------- Validation ----------------------------------
+# ------------------------------------- Validation -------------------------------------
 @pytest.mark.parametrize(
     "kwargs, message",
     [
         (dict(width=0), "width"),
         (dict(width=-5), "width"),
         (dict(min_run=0), "min_run"),
-        (dict(fill="--"), "fill"),
+        (dict(fill=""), "fill"),
         (dict(fill=" "), "fill"),
+        (dict(fill="- "), "fill"),
         (dict(detect_chars=""), "detect_chars"),
         (dict(style="banner"), "style"),
         (dict(align="middle"), "align"),
+        (dict(fill_mode="stretch"), "fill_mode"),
+        (dict(fill_count=0), "fill_count"),
+        (dict(fill_mode="fixed", fill_count=2, min_run=3), "min_run"),
         (dict(tab_width=0), "tab_width"),
         (dict(max_title=0), "max_title"),
     ],
@@ -385,7 +494,15 @@ def test_fill_added_to_detect_chars_for_idempotency():
     assert changed == 0
 
 
-# ---------------------------- Language registry ------------------------------
+def test_multi_character_fill_seeds_each_char_and_round_trips():
+    style = Style(fill="<>", detect_chars="-=")
+    assert "<" in style.detect_chars and ">" in style.detect_chars
+    once = core._format_banner("", HASH, "Title", style)
+    _, changed, _ = core.process_text(once + "\n", HASH, style)
+    assert changed == 0
+
+
+# --------------------------------- Language registry ----------------------------------
 @pytest.mark.parametrize(
     "suffix, language, width",
     [

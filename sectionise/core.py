@@ -31,6 +31,8 @@ DEFAULT_DETECT_CHARS = "-=*_~#—–─═"
 DEFAULT_MIN_RUN = 3
 DEFAULT_STYLE = "single"
 DEFAULT_ALIGN = "centre"
+DEFAULT_FILL_MODE = "width"
+DEFAULT_FILL_COUNT = 3
 DEFAULT_TAB_WIDTH = 8
 
 # Comment syntax as (opener, closer). The closer is empty for line comments and
@@ -129,7 +131,9 @@ class Style:
 
     Attributes:
         width: Target total line length for a rewritten banner or rule.
-        fill: The single fill character used in output.
+        fill: The fill used in output. Usually one character; a multi-character
+            fill is tiled and truncated to the exact width (`-=` gives
+            `-=-=-=-`), and each of its characters is added to `detect_chars`.
         detect_chars: Characters recognised as banner fill in input.
         min_run: Minimum identical-fill run length to count as a banner side.
         require_both_sides: Only treat a comment as a banner when it has a fill
@@ -141,6 +145,19 @@ class Style:
         align: Single-line title placement, `centre` (fill both sides) or `left`
             (title first, fill trailing). The American spelling `center` is
             accepted and normalised to `centre`.
+        fill_mode: How much fill a single-line banner carries, `width` (pad to
+            the target `width`) or `fixed` (`fill_count` characters per run, so
+            the line length grows with the title). `align` still decides the
+            sides: `centre` fills both, `left` fills only after the title. Box
+            style and stand-alone dividers are unaffected and always span
+            `width`.
+        fill_count: Fill characters per run when `fill_mode` is `fixed`. Must be
+            at least `min_run`, so a rendered banner is still recognised as one.
+        bookend: Close a single-line banner with a mirror of the comment opener,
+            so the line ends the way it starts (`# --- Title --- #`,
+            `// --- Title --- //`). Line comments only; block comments already
+            close with their own token, and box style is unaffected. A trailing
+            opener is always recognised on input regardless of this setting.
         tab_width: Columns a leading tab occupies, so tab-indented banners reach
             the target width.
         max_title: Optional hard cap on title length, on top of the width fit.
@@ -155,6 +172,9 @@ class Style:
     boxes: bool = True
     style: str = DEFAULT_STYLE
     align: str = DEFAULT_ALIGN
+    fill_mode: str = DEFAULT_FILL_MODE
+    fill_count: int = DEFAULT_FILL_COUNT
+    bookend: bool = False
     tab_width: int = DEFAULT_TAB_WIDTH
     max_title: int | None = None
 
@@ -180,9 +200,13 @@ class Style:
             raise ValueError(
                 f"min_run must be a positive integer, got {self.min_run!r}"
             )
-        if not isinstance(self.fill, str) or len(self.fill) != 1 or self.fill.isspace():
+        if (
+            not isinstance(self.fill, str)
+            or not self.fill
+            or any(char.isspace() for char in self.fill)
+        ):
             raise ValueError(
-                f"fill must be a single non-space character, got {self.fill!r}"
+                f"fill must be a non-empty string without whitespace, got {self.fill!r}"
             )
         if not isinstance(self.detect_chars, str) or not self.detect_chars:
             raise ValueError(
@@ -202,6 +226,25 @@ class Style:
             object.__setattr__(self, "align", "centre")
         if self.align not in ("centre", "left"):
             raise ValueError(f"align must be 'centre' or 'left', got {self.align!r}")
+        if self.fill_mode not in ("width", "fixed"):
+            raise ValueError(
+                f"fill_mode must be 'width' or 'fixed', got {self.fill_mode!r}"
+            )
+        if (
+            not isinstance(self.fill_count, int)
+            or isinstance(self.fill_count, bool)
+            or self.fill_count < 1
+        ):
+            raise ValueError(
+                f"fill_count must be a positive integer, got {self.fill_count!r}"
+            )
+        # A fixed run shorter than min_run would not be re-detected as a banner,
+        # so a freshly written header could not be re-fitted.
+        if self.fill_mode == "fixed" and self.fill_count < self.min_run:
+            raise ValueError(
+                f"fill_count must be at least min_run ({self.min_run}) in fixed "
+                f"mode, got {self.fill_count}"
+            )
         if self.max_title is not None and (
             not isinstance(self.max_title, int)
             or isinstance(self.max_title, bool)
@@ -210,10 +253,14 @@ class Style:
             raise ValueError(
                 f"max_title must be a positive integer or unset, got {self.max_title!r}"
             )
-        # The output fill must be recognised on the next run, else a freshly
-        # written banner would not be seen as one and could not be re-fitted.
-        if self.fill not in self.detect_chars:
-            object.__setattr__(self, "detect_chars", self.detect_chars + self.fill)
+        # Every output fill character must be recognised on the next run, else a
+        # freshly written banner would not be seen as one and could not be
+        # re-fitted. A multi-character fill seeds each of its characters.
+        missing = "".join(
+            dict.fromkeys(c for c in self.fill if c not in self.detect_chars)
+        )
+        if missing:
+            object.__setattr__(self, "detect_chars", self.detect_chars + missing)
 
 
 Syntax = tuple[str, str]
@@ -450,7 +497,39 @@ def _extract(content: str, syntax: tuple[str, str]) -> tuple[str, str] | None:
         if not inner.rstrip().endswith(closer):
             return None
         inner = inner.rstrip()[: -len(closer)]
+    else:
+        # A line-comment banner may be book-ended with a mirror of the opener
+        # (`# --- x --- #`, `// --- x --- //`). Drop a stand-alone trailing
+        # opener so the title is recovered, whatever the `bookend` setting is,
+        # since the opener may not be a detectable fill character.
+        trimmed = inner.rstrip()
+        if trimmed.endswith(opener) and (
+            len(trimmed) == len(opener) or trimmed[-len(opener) - 1].isspace()
+        ):
+            inner = trimmed[: -len(opener)]
     return indent, inner
+
+
+def _strip_edge_fill(text: str, detect_chars: str) -> str:
+    """Drop whitespace-separated fill runs from each edge of `text`.
+
+    A run of a fill character that stands alone, bounded by whitespace or the
+    string edge, is decoration and is removed, so `title --- #` reduces to
+    `title`. A fill character joined to the title text with no space, as in
+    `_function_name` or `#Nice`, is part of the title and kept.
+    """
+    s = text.strip()
+    while s and s[0] in detect_chars:
+        run = len(s) - len(s.lstrip(s[0]))
+        if run < len(s) and not s[run].isspace():
+            break  # attached to the title text, so keep it
+        s = s[run:].lstrip()
+    while s and s[-1] in detect_chars:
+        run = len(s) - len(s.rstrip(s[-1]))
+        if run < len(s) and not s[-1 - run].isspace():
+            break  # attached to the title text, so keep it
+        s = s[: len(s) - run].rstrip()
+    return s
 
 
 def _side_runs(inner: str, style: Style) -> tuple[int, int, str]:
@@ -466,20 +545,16 @@ def _side_runs(inner: str, style: Style) -> tuple[int, int, str]:
     stripped = inner.strip()
     if not stripped:
         return 0, 0, ""
+    # A fill run is any maximal run of detect characters, not just one repeated
+    # character, so a multi-character fill motif (`-=-=-=`) reads as a single
+    # run and the tool's own output round-trips.
     lead = 0
-    if stripped[0] in style.detect_chars:
-        char = stripped[0]
-        while lead < len(stripped) and stripped[lead] == char:
-            lead += 1
+    while lead < len(stripped) and stripped[lead] in style.detect_chars:
+        lead += 1
     trail = 0
-    if stripped[-1] in style.detect_chars:
-        char = stripped[-1]
-        while trail < len(stripped) and stripped[-1 - trail] == char:
-            trail += 1
-    # Strip any residual fill characters left at the title edges, so decoration
-    # like a trailing lone `#` (`# --- title --- #`) cannot drag the real fill
-    # run into the title.
-    title = stripped[lead : len(stripped) - trail].strip(style.detect_chars + " \t")
+    while trail < len(stripped) and stripped[-1 - trail] in style.detect_chars:
+        trail += 1
+    title = _strip_edge_fill(stripped[lead : len(stripped) - trail], style.detect_chars)
     return lead, trail, title
 
 
@@ -574,23 +649,53 @@ def _match_box(
     return None
 
 
+def _close_part(syntax: tuple[str, str], style: Style) -> str:
+    """Return the trailing part of a single-line banner (space plus closer).
+
+    A block comment uses its own closer. A line comment has none, but closes
+    with a mirror of the opener when `bookend` is on, and is otherwise bare.
+    """
+    opener, closer = syntax
+    if closer:
+        return f" {closer}"
+    return f" {opener}" if style.bookend else ""
+
+
+def _tile(fill: str, count: int) -> str:
+    """Return exactly `count` characters of the fill, tiling and truncating.
+
+    For a single-character fill this is just repetition; a multi-character fill
+    is repeated and cut to length, so `-=` at width 7 gives `-=-=-=-`.
+    """
+    if count <= 0:
+        return ""
+    return (fill * (count // len(fill) + 1))[:count]
+
+
 def _format_banner(
     indent: str, syntax: tuple[str, str], title: str, style: Style
 ) -> str:
     """Render a canonical single-line banner, centred or left-aligned."""
-    opener, closer = syntax
-    open_part = f"{opener} "
-    close_part = f" {closer}" if closer else ""
+    open_part = f"{syntax[0]} "
+    close_part = _close_part(syntax, style)
+    if style.fill_mode == "fixed":
+        run = _tile(style.fill, style.fill_count)
+        if style.align == "left":
+            return f"{indent}{open_part}{title} {run}{close_part}"
+        return f"{indent}{open_part}{run} {title} {run}{close_part}"
     indent_cols = _indent_width(indent, style.tab_width)
     if style.align == "left":
         used = indent_cols + len(open_part) + len(title) + 1 + len(close_part)
         count = max(style.width - used, style.min_run)
-        return f"{indent}{open_part}{title} {style.fill * count}{close_part}"
+        return f"{indent}{open_part}{title} {_tile(style.fill, count)}{close_part}"
     fixed = indent_cols + len(open_part) + 1 + len(title) + 1 + len(close_part)
     total = max(style.width - fixed, 2 * style.min_run)
     left = total // 2
     right = total - left
-    return f"{indent}{open_part}{style.fill * left} {title} {style.fill * right}{close_part}"
+    return (
+        f"{indent}{open_part}{_tile(style.fill, left)} {title} "
+        f"{_tile(style.fill, right)}{close_part}"
+    )
 
 
 def _format_rule(indent: str, syntax: tuple[str, str], style: Style) -> str:
@@ -602,7 +707,7 @@ def _format_rule(indent: str, syntax: tuple[str, str], style: Style) -> str:
     count = max(
         style.width - indent_cols - len(open_part) - len(close_part), style.min_run
     )
-    return f"{indent}{open_part}{style.fill * count}{close_part}"
+    return f"{indent}{open_part}{_tile(style.fill, count)}{close_part}"
 
 
 def _format_title_line(indent: str, syntax: tuple[str, str], title: str) -> str:
@@ -622,21 +727,30 @@ def _render(
     return [_format_banner(indent, syntax, title, style)]
 
 
-def _title_limit(indent: str, syntax: tuple[str, str], style: Style) -> int:
-    """Return the maximum title length that fits the chosen style and cap."""
+def _title_limit(indent: str, syntax: tuple[str, str], style: Style) -> int | None:
+    """Return the maximum title length for the style and cap, or `None`.
+
+    `None` means the title has no length limit, which is the case for a
+    fixed-fill single-line banner: its fill runs are a constant length, so the
+    line grows with the title and `width` imposes no bound. Only an explicit
+    `max_title` caps it.
+    """
     opener, closer = syntax
     open_part = f"{opener} "
-    close_part = f" {closer}" if closer else ""
+    if style.style != "box" and style.fill_mode == "fixed":
+        return style.max_title
     indent_cols = _indent_width(indent, style.tab_width)
     if style.style == "box":
-        fit = style.width - indent_cols - len(open_part) - len(close_part)
+        # Box is unaffected by bookend, so only its own block closer counts.
+        box_close = f" {closer}" if closer else ""
+        fit = style.width - indent_cols - len(open_part) - len(box_close)
     elif style.align == "left":
         fit = (
             style.width
             - indent_cols
             - len(open_part)
             - 1  # the space between the title and its trailing fill
-            - len(close_part)
+            - len(_close_part(syntax, style))
             - style.min_run
         )
     else:
@@ -645,7 +759,7 @@ def _title_limit(indent: str, syntax: tuple[str, str], style: Style) -> int:
             - indent_cols
             - len(open_part)
             - 2  # the two spaces framing the title
-            - len(close_part)
+            - len(_close_part(syntax, style))
             - 2 * style.min_run
         )
     fit = max(fit, 1)
@@ -695,7 +809,7 @@ def _emit_unit(
     """
     original = "".join(lines[start : end + 1])
     limit = _title_limit(indent, syntax, style)
-    if len(title) > limit:
+    if limit is not None and len(title) > limit:
         return original, False, _too_long_error(path, start + 1, title, limit, style)
 
     rendered = _render(indent, syntax, title, style)

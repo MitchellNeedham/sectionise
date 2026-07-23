@@ -157,6 +157,9 @@ overrides are honoured.
 style = "single"        # or "box"
 fill = "-"
 align = "centre"        # or "left"
+fill_mode = "width"     # or "fixed"
+fill_count = 3          # fill characters per run when fill_mode = "fixed"
+bookend = false         # close a single-line banner with a mirror of the opener
 detect_chars = "-=*_~#—–─═"
 min_run = 3
 require_both_sides = false
@@ -172,8 +175,11 @@ encoding = "utf-8"
 | --- | --- | --- | --- |
 | `width` | `--width` | per language | Target total line length. |
 | `style` | `--style` | `single` | Output form: `single` line or 3-line `box`. |
-| `fill` | `--fill` | `-` | Output fill character. |
+| `fill` | `--fill` | `-` | Output fill. One or more characters; a multi-character fill is tiled to the width. |
 | `align` | `--align` | `centre` | Single-line title placement: `centre` or `left`. |
+| `fill_mode` | `--fill-mode` | `width` | Single-line fill: `width` (pad to `width`) or `fixed` (a set count per run). |
+| `fill_count` | `--fill-count` | `3` | Fill characters per run when `fill_mode` is `fixed`. Must be at least `min_run`. |
+| `bookend` | `--bookend` | `false` | Close a single-line banner with a mirror of the comment opener. Line comments only. |
 | `detect_chars` | `--detect-chars` | `-=*_~#—–─═` | Characters recognised as fill in input. |
 | `min_run` | `--min-run` | `3` | Minimum fill-run length to count as a banner side. |
 | `require_both_sides` | `--require-both-sides` | `false` | Only treat both-sided comments as banners. |
@@ -213,7 +219,63 @@ align = "left"
 # Loading models -----------------------------------------------------------------------
 ```
 
-Any single non-space character is a valid fill, including an emoji:
+A fixed number of fill characters per run, so the line length follows the title
+instead of the target width:
+
+```toml
+[tool.sectionise]
+fill_mode = "fixed"
+fill_count = 5
+```
+
+```
+# ----- Loading models -----
+# ----- Setup -----
+```
+
+`align` still decides the sides: `centre` (the default) puts a matching run on
+both sides as above, while `left` keeps the trailing run only (`# Loading models
+-----`). Box style and stand-alone dividers ignore `fill_mode` and always span
+`width`.
+
+Book-ended headers close with a mirror of the comment opener, so the line ends
+the way it starts:
+
+```toml
+[tool.sectionise]
+fill_mode = "fixed"
+fill_count = 4
+bookend = true
+```
+
+```
+# ---- Loading models ---- #
+```
+
+The closing marker is always the opener, so it matches by construction: a `//`
+comment closes with `//`, a `#` comment with `#`. Block comments already close
+with their own token, so `bookend` leaves them alone. A trailing opener is
+recognised on input whether or not `bookend` is set, so existing
+`// --- x --- //` banners are picked up either way.
+
+The fill can be more than one character; a multi-character fill is tiled and
+truncated to reach the width:
+
+```toml
+[tool.sectionise]
+fill = "=-"
+fill_mode = "fixed"
+fill_count = 8
+```
+
+```
+# =-=-=-=- Loading models =-=-=-=-
+```
+
+A fill longer than the run it fills is truncated to its leading characters, so
+in `fixed` mode a fill longer than `fill_count` is cut mid-motif.
+
+Any non-space fill is valid, including an emoji:
 
 ```toml
 [tool.sectionise]
@@ -226,7 +288,7 @@ width = 40
 ```
 
 `width` counts characters, not display columns, so a double-width emoji fill
-lands on target by count but overshoots visually. Fun, not recommended.
+lands on target by count but is wider on screen.
 
 ### Per-language overrides
 

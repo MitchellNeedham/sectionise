@@ -17,7 +17,7 @@ def write(path, text, encoding="utf-8"):
     return path
 
 
-# ---------------------------- Per-language defaults --------------------------
+# ------------------------------- Per-language defaults --------------------------------
 @pytest.mark.parametrize(
     "suffix, comment, expected_width",
     [
@@ -33,7 +33,7 @@ def test_builtin_default_width_per_language(tmp_path, suffix, comment, expected_
     assert len(f.read_text(encoding="utf-8").splitlines()[0]) == expected_width
 
 
-# ------------------------------ Config precedence ----------------------------
+# --------------------------------- Config precedence ----------------------------------
 def test_global_and_per_language_override(tmp_path):
     write(
         tmp_path / "pyproject.toml",
@@ -55,7 +55,30 @@ def test_flag_overrides_everything(tmp_path):
     assert len(f.read_text().splitlines()[0]) == 50
 
 
-# --------------------------------- Exit codes --------------------------------
+# ------------------------------------- Fill mode --------------------------------------
+def test_fixed_fill_mode_via_flags(tmp_path):
+    f = write(tmp_path / "a.py", "# ------- Setup -------\n")
+    assert main(["--fill-mode", "fixed", "--fill-count", "5", str(f)]) == 1
+    assert f.read_text(encoding="utf-8") == "# ----- Setup -----\n"
+
+
+def test_fixed_fill_mode_from_config(tmp_path):
+    write(
+        tmp_path / "pyproject.toml",
+        '[tool.sectionise]\nfill_mode = "fixed"\nfill_count = 4\n',
+    )
+    f = write(tmp_path / "a.py", "# --- Setup ---\n")
+    main([str(tmp_path)])
+    assert f.read_text(encoding="utf-8") == "# ---- Setup ----\n"
+
+
+def test_bookend_mirrors_opener_via_flag(tmp_path):
+    f = write(tmp_path / "a.py", "# --- Setup ---\n")
+    assert main(["--bookend", "--fill-mode", "fixed", "--fill-count", "4", str(f)]) == 1
+    assert f.read_text(encoding="utf-8") == "# ---- Setup ---- #\n"
+
+
+# ------------------------------------- Exit codes -------------------------------------
 def test_exit_zero_when_clean(tmp_path, capsys):
     f = write(tmp_path / "a.py", "# --- x ---\ncode = 1\n")
     main([str(f)])  # normalise first
@@ -74,7 +97,7 @@ def test_exit_two_on_over_long_title(tmp_path, capsys):
     assert "section title" in err  # errors go to stderr
 
 
-# ------------------------------- Check and diff ------------------------------
+# ----------------------------------- Check and diff -----------------------------------
 def test_check_does_not_write(tmp_path):
     f = write(tmp_path / "a.py", "# --- x ---\n")
     main(["--check", str(f)])
@@ -90,7 +113,7 @@ def test_diff_prints_and_does_not_write(tmp_path, capsys):
     assert f.read_text() == "# --- x ---\n"  # unchanged on disk
 
 
-# ---------------------------------- Stdin ------------------------------------
+# --------------------------------------- Stdin ----------------------------------------
 def test_stdin_writes_to_stdout(monkeypatch, capsys):
     monkeypatch.setattr("sys.stdin", io.StringIO("# --- hi ---\n"))
     rc = main(["--width", "40", "-"])
@@ -105,7 +128,7 @@ def test_stdin_filename_picks_syntax(monkeypatch, capsys):
     assert capsys.readouterr().out.startswith("// ")
 
 
-# ------------------------------ Directory walk -------------------------------
+# ----------------------------------- Directory walk -----------------------------------
 def test_directory_walk_skips_vendored_dirs(tmp_path):
     write(tmp_path / "pkg" / "y.py", "# --- y ---\n")
     write(tmp_path / ".venv" / "x.py", "# --- x ---\n")
@@ -125,7 +148,7 @@ def test_unsupported_explicit_file_warns(tmp_path, capsys):
     assert "unsupported" in capsys.readouterr().err
 
 
-# ---------------------------- Custom and shebang -----------------------------
+# --------------------------------- Custom and shebang ---------------------------------
 def test_custom_language_from_config(tmp_path):
     write(
         tmp_path / "pyproject.toml",
@@ -152,7 +175,7 @@ def test_shebang_extensionless_script(tmp_path):
     assert len(f.read_text().splitlines()[1]) == 88  # python default width
 
 
-# --------------------------- Encoding and endings ----------------------------
+# -------------------------------- Encoding and endings --------------------------------
 def test_lf_stays_lf(tmp_path):
     f = tmp_path / "a.py"
     f.write_bytes(b"# --- x ---\ncode = 1\n")
