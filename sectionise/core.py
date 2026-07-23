@@ -19,6 +19,9 @@ The pure functions here have no I/O; `cli` wires configuration and files around
 them.
 """
 
+import io
+import tokenize
+from collections.abc import Collection
 from dataclasses import dataclass
 
 DEFAULT_WIDTH = 88
@@ -62,6 +65,19 @@ _SYNTAX_BY_SUFFIX = {
     ".md": _BLOCK_HTML,
 }
 
+# Multi-line string delimiters per suffix, used to shield string contents from
+# banner rewriting. A line that only looks like a banner because it sits inside
+# a here-doc, template literal, or triple-quoted string must be left untouched.
+_BACKTICK = ("`", "`")
+_PY_TRIPLE = (('"""', '"""'), ("'''", "'''"))
+_MULTILINE_STRING_DELIMS = {
+    ".js": (_BACKTICK,),
+    ".jsx": (_BACKTICK,),
+    ".ts": (_BACKTICK,),
+    ".tsx": (_BACKTICK,),
+    ".go": (_BACKTICK,),
+}
+
 
 @dataclass(frozen=True)
 class Style:
@@ -99,6 +115,95 @@ def syntax_for(suffix: str) -> tuple[str, str] | None:
         The `(opener, closer)` comment tokens, or `None`.
     """
     return _SYNTAX_BY_SUFFIX.get(suffix.lower())
+
+
+def _python_protected(text: str) -> set[int] | None:
+    """Return 0-based line indices inside Python string tokens, or `None`.
+
+    `None` signals that the source could not be tokenised (for example a syntax
+    error), so the caller should fall back to the delimiter heuristic.
+    """
+    string_types = {tokenize.STRING}
+    for name in ("FSTRING_START", "FSTRING_MIDDLE", "FSTRING_END"):
+        token_type = getattr(tokenize, name, None)
+        if token_type is not None:
+            string_types.add(token_type)
+    protected: set[int] = set()
+    try:
+        for tok in tokenize.generate_tokens(io.StringIO(text).readline):
+            if tok.type in string_types and tok.end[0] > tok.start[0]:
+                protected.update(range(tok.start[0] - 1, tok.end[0]))
+    except (tokenize.TokenError, IndentationError, SyntaxError, ValueError):
+        return None
+    return protected
+
+
+def _scan_protected(text: str, delims: tuple[tuple[str, str], ...]) -> set[int]:
+    """Return 0-based line indices that lie inside a multi-line string.
+
+    A small state machine walks the text tracking whether it is inside one of
+    `delims`. Only lines strictly inside a string are marked, so the opening and
+    closing lines (which cannot themselves be full-line comments) stay eligible.
+    """
+    ordered = sorted(delims, key=lambda pair: -len(pair[0]))
+    protected: set[int] = set()
+    line = 0
+    i = 0
+    n = len(text)
+    closer: str | None = None
+    while i < n:
+        ch = text[i]
+        if ch == "\n":
+            if closer is not None:
+                protected.add(line)
+            line += 1
+            i += 1
+            continue
+        if closer is None:
+            for opener, close_token in ordered:
+                if text.startswith(opener, i):
+                    closer = close_token
+                    i += len(opener)
+                    break
+            else:
+                i += 1
+            continue
+        if ch == "\\":
+            i += 2
+            continue
+        if text.startswith(closer, i):
+            i += len(closer)
+            closer = None
+            continue
+        i += 1
+    return protected
+
+
+def protected_lines(text: str, suffix: str) -> frozenset[int]:
+    """Return 0-based line indices whose content sits inside a string literal.
+
+    Banner rewriting must skip these so a line that only looks like a banner
+    because it lives in a docstring, here-doc, or template literal is left
+    untouched. Python is tokenised for accuracy; other languages use a
+    delimiter heuristic. Languages with no multi-line string form return empty.
+
+    Args:
+        text: The full file contents.
+        suffix: The file extension including the dot (for example `.py`).
+
+    Returns:
+        The set of protected line indices.
+    """
+    suffix = suffix.lower()
+    if suffix in (".py", ".pyi"):
+        result = _python_protected(text)
+        if result is not None:
+            return frozenset(result)
+        return frozenset(_scan_protected(text, _PY_TRIPLE))
+    delims = _MULTILINE_STRING_DELIMS.get(suffix)
+    if delims:
+        return frozenset(_scan_protected(text, delims))
+    return frozenset()
 
 
 def _content(line: str) -> str:
@@ -309,7 +414,11 @@ def _emit_unit(
 
 
 def process_text(
-    text: str, syntax: tuple[str, str], style: Style, path: str = "<text>"
+    text: str,
+    syntax: tuple[str, str],
+    style: Style,
+    path: str = "<text>",
+    protected: Collection[int] = (),
 ) -> tuple[str, int, list[str]]:
     """Reformat every section-header banner in `text`.
 
@@ -318,6 +427,8 @@ def process_text(
         syntax: The `(opener, closer)` comment tokens for the file.
         style: The active settings.
         path: Display path used in error messages.
+        protected: 0-based line indices to leave untouched because they sit
+            inside a string literal (see `protected_lines`).
 
     Returns:
         `(new_text, changed_count, errors)`. Passthrough lines keep their exact
@@ -326,16 +437,22 @@ def process_text(
     lines = text.splitlines(keepends=True)
     n = len(lines)
     file_eol = "\r\n" if "\r\n" in text else "\n"
+    protected = frozenset(protected)
     out: list[str] = []
     changed = 0
     errors: list[str] = []
 
     i = 0
     while i < n:
+        if i in protected:
+            out.append(lines[i])
+            i += 1
+            continue
+
         c0 = _content(lines[i])
 
         # Three-line box: rule / title comment / rule, all the same indent.
-        if i + 2 < n:
+        if i + 2 < n and not (protected & {i + 1, i + 2}):
             c1, c2 = _content(lines[i + 1]), _content(lines[i + 2])
             if (
                 _is_rule(c0, syntax, style)

@@ -131,7 +131,8 @@ def main(argv: list[str] | None = None) -> int:
             text = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
-        new_text, changed, errors = core.process_text(text, syntax, style, name)
+        protected = core.protected_lines(text, path.suffix)
+        new_text, changed, errors = core.process_text(text, syntax, style, name, protected)
         all_errors.extend(errors)
         if changed:
             changed_files.append(name)

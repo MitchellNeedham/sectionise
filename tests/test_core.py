@@ -140,3 +140,35 @@ def test_fill_glued_to_title_with_trailing_hash():
     new, changed, _ = core.process_text(text, HASH, Style(width=70))
     assert changed == 1
     assert new.rstrip("\n") == core._format_banner("", HASH, "hack for training", Style(width=70))
+
+
+def test_banner_inside_python_string_is_left_untouched():
+    text = 'x = """\n# ==== not a comment ====\nhello\n"""\n'
+    protected = core.protected_lines(text, ".py")
+    new, changed, errors = core.process_text(text, HASH, Style(width=88), protected=protected)
+    assert changed == 0
+    assert new == text
+    assert errors == []
+
+
+def test_banner_after_string_still_rewritten():
+    text = 'x = """\n# ==== data ====\n"""\n# --- Real section ---\n'
+    protected = core.protected_lines(text, ".py")
+    new, changed, _ = core.process_text(text, HASH, Style(width=40), protected=protected)
+    assert changed == 1
+    assert "# ==== data ====" in new  # the in-string line survives verbatim
+    assert new.splitlines()[-1] == core._format_banner("", HASH, "Real section", Style(width=40))
+
+
+def test_unparseable_python_falls_back_to_triple_quote_heuristic():
+    text = 'def broken(:\n    x = """\n# ==== nope ====\n"""\n'
+    protected = core.protected_lines(text, ".py")
+    assert 2 in protected  # the banner-looking line inside the string
+
+
+def test_backtick_template_literal_protects_banner():
+    text = "const s = `\n// ==== not a comment ====\n`;\n"
+    protected = core.protected_lines(text, ".ts")
+    new, changed, _ = core.process_text(text, SLASH, Style(width=60), protected=protected)
+    assert changed == 0
+    assert new == text
