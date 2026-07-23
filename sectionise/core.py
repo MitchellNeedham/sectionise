@@ -158,7 +158,10 @@ def _side_runs(inner: str, style: Style) -> tuple[int, int, str]:
         char = stripped[-1]
         while trail < len(stripped) and stripped[-1 - trail] == char:
             trail += 1
-    title = stripped[lead : len(stripped) - trail].strip()
+    # Strip any residual fill characters left at the title edges, so decoration
+    # like a trailing lone `#` (`# --- title --- #`) cannot drag the real fill
+    # run into the title.
+    title = stripped[lead : len(stripped) - trail].strip(style.detect_chars + " \t")
     return lead, trail, title
 
 

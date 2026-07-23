@@ -119,3 +119,24 @@ def test_preserves_crlf_line_endings():
     new, _, _ = core.process_text(text, HASH, Style(width=40))
     assert new.endswith("\r\n")
     assert "\r" not in new[:-2]
+
+
+def test_trailing_lone_hash_does_not_leak_into_title():
+    text = "# ---------------- model config ---------------- #\n"
+    new, changed, _ = core.process_text(text, HASH, Style(width=60))
+    assert changed == 1
+    assert new.rstrip("\n") == core._format_banner("", HASH, "model config", Style(width=60))
+
+
+def test_hash_fill_banner_normalises_to_dashes():
+    text = "##### basic #####\n"
+    new, changed, _ = core.process_text(text, HASH, Style(width=40))
+    assert changed == 1
+    assert new.rstrip("\n") == core._format_banner("", HASH, "basic", Style(width=40))
+
+
+def test_fill_glued_to_title_with_trailing_hash():
+    text = "# ------------------------hack for training -------------------- #\n"
+    new, changed, _ = core.process_text(text, HASH, Style(width=70))
+    assert changed == 1
+    assert new.rstrip("\n") == core._format_banner("", HASH, "hack for training", Style(width=70))
