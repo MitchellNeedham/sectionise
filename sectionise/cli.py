@@ -142,6 +142,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "--style", choices=("single", "box"), default=None, help="Output form."
     )
     parser.add_argument(
+        "--align",
+        choices=("centre", "center", "left"),
+        default=None,
+        help="Single-line title placement (default centre).",
+    )
+    parser.add_argument(
         "--max-title", type=int, default=None, help="Hard cap on title length."
     )
     parser.add_argument(
@@ -206,6 +212,7 @@ def _resolve_style(
         dividers=pick(args.dividers, "dividers", False),
         boxes=pick(args.boxes, "boxes", True),
         style=pick(args.style, "style", core.DEFAULT_STYLE),
+        align=pick(args.align, "align", core.DEFAULT_ALIGN),
         max_title=pick(args.max_title, "max_title", None),
     )
 

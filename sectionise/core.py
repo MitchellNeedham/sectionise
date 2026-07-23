@@ -30,6 +30,7 @@ DEFAULT_FILL = "-"
 DEFAULT_DETECT_CHARS = "-=*_~#—–─═"
 DEFAULT_MIN_RUN = 3
 DEFAULT_STYLE = "single"
+DEFAULT_ALIGN = "centre"
 
 # Comment syntax as (opener, closer). The closer is empty for line comments and
 # non-empty for block comments. A language maps to a tuple of syntaxes; a banner
@@ -128,6 +129,9 @@ class Style:
         boxes: Recognise the three-line box form (rule / title / rule) as a
             banner. When off, box-shaped headers are left untouched.
         style: Output form, `single` (one line) or `box` (three lines).
+        align: Single-line title placement, `centre` (fill both sides) or `left`
+            (title first, fill trailing). The American spelling `center` is
+            accepted and normalised to `centre`.
         max_title: Optional hard cap on title length, on top of the width fit.
     """
 
@@ -139,6 +143,7 @@ class Style:
     dividers: bool = False
     boxes: bool = True
     style: str = DEFAULT_STYLE
+    align: str = DEFAULT_ALIGN
     max_title: int | None = None
 
     def __post_init__(self) -> None:
@@ -159,6 +164,10 @@ class Style:
             raise ValueError(f"detect_chars must be a non-empty string, got {self.detect_chars!r}")
         if self.style not in ("single", "box"):
             raise ValueError(f"style must be 'single' or 'box', got {self.style!r}")
+        if self.align == "center":
+            object.__setattr__(self, "align", "centre")
+        if self.align not in ("centre", "left"):
+            raise ValueError(f"align must be 'centre' or 'left', got {self.align!r}")
         if self.max_title is not None and (
             not isinstance(self.max_title, int)
             or isinstance(self.max_title, bool)
@@ -518,10 +527,14 @@ def _match_box(
 
 
 def _format_banner(indent: str, syntax: tuple[str, str], title: str, style: Style) -> str:
-    """Render a canonical single-line banner: fill padded around a centred title."""
+    """Render a canonical single-line banner, centred or left-aligned."""
     opener, closer = syntax
     open_part = f"{opener} "
     close_part = f" {closer}" if closer else ""
+    if style.align == "left":
+        prefix = f"{indent}{open_part}{title} "
+        count = max(style.width - len(prefix) - len(close_part), style.min_run)
+        return f"{prefix}{style.fill * count}{close_part}"
     fixed = len(indent) + len(open_part) + 1 + len(title) + 1 + len(close_part)
     total = max(style.width - fixed, 2 * style.min_run)
     left = total // 2
@@ -560,6 +573,15 @@ def _title_limit(indent: str, syntax: tuple[str, str], style: Style) -> int:
     close_part = f" {closer}" if closer else ""
     if style.style == "box":
         fit = style.width - len(indent) - len(open_part) - len(close_part)
+    elif style.align == "left":
+        fit = (
+            style.width
+            - len(indent)
+            - len(open_part)
+            - 1  # the space between the title and its trailing fill
+            - len(close_part)
+            - style.min_run
+        )
     else:
         fit = (
             style.width

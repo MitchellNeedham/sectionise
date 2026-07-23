@@ -234,6 +234,23 @@ def test_c_block_box_collapses_to_single_block_banner():
     assert new.rstrip("\n").startswith("/* ") and new.rstrip("\n").endswith(" */")
 
 
+def test_left_align_puts_title_first_and_fits_width():
+    out = core._format_banner("", HASH, "Setup", Style(width=40, align="left"))
+    assert out == "# Setup " + "-" * (40 - len("# Setup "))
+    assert len(out) == 40
+
+
+def test_left_align_is_idempotent():
+    style = Style(width=40, align="left")
+    once = core._format_banner("", HASH, "Section name", style)
+    new, changed, _ = core.process_text(once + "\n", HASH, style)
+    assert changed == 0
+
+
+def test_align_center_is_normalised_from_american_spelling():
+    assert Style(align="center").align == "centre"
+
+
 def test_boxes_disabled_leaves_box_untouched():
     text = "# ======\n# Setup\n# ======\n"
     new, changed, _ = core.process_text(text, HASH, Style(boxes=False, width=40))
